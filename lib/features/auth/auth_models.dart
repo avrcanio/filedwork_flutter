@@ -29,6 +29,13 @@ class FieldworkCapabilities {
       canEditHours: json['can_edit_hours'] as bool? ?? false,
     );
   }
+
+  /// Staff ima praznu listu managed ali `canEditHours`; obični korisnik mora biti u listi.
+  bool canManageZaposlenik(int zaposlenikId) {
+    if (!canEditHours) return false;
+    if (managedZaposlenikIds.isEmpty && ownZaposlenikId == null) return true;
+    return managedZaposlenikIds.contains(zaposlenikId);
+  }
 }
 
 class AuthUser {

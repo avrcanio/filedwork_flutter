@@ -58,6 +58,7 @@ class VehicleLookup {
 class WorkOrderAssignment {
   const WorkOrderAssignment({
     required this.id,
+    this.zaposlenikId,
     required this.zaposlenikName,
     this.pozicijaName = '',
     this.datum,
@@ -69,6 +70,7 @@ class WorkOrderAssignment {
   });
 
   final int id;
+  final int? zaposlenikId;
   final String zaposlenikName;
   final String pozicijaName;
   final String? datum;
@@ -81,6 +83,7 @@ class WorkOrderAssignment {
   factory WorkOrderAssignment.fromJson(Map<String, dynamic> json) {
     return WorkOrderAssignment(
       id: json['id'] as int,
+      zaposlenikId: (json['zaposlenik'] as num?)?.toInt(),
       zaposlenikName: json['zaposlenik_name'] as String? ?? '',
       pozicijaName: json['pozicija_name'] as String? ?? '',
       datum: json['datum'] as String?,
@@ -96,6 +99,7 @@ class WorkOrderAssignment {
 class WorkOrderVehicle {
   const WorkOrderVehicle({
     required this.id,
+    this.voziloId,
     required this.voziloLabel,
     this.registracija = '',
     this.datum,
@@ -106,6 +110,7 @@ class WorkOrderVehicle {
   });
 
   final int id;
+  final int? voziloId;
   final String voziloLabel;
   final String registracija;
   final String? datum;
@@ -117,6 +122,7 @@ class WorkOrderVehicle {
   factory WorkOrderVehicle.fromJson(Map<String, dynamic> json) {
     return WorkOrderVehicle(
       id: json['id'] as int,
+      voziloId: (json['vozilo'] as num?)?.toInt(),
       voziloLabel: json['vozilo_label'] as String? ?? '',
       registracija: json['registracija'] as String? ?? '',
       datum: json['datum'] as String?,

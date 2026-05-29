@@ -39,6 +39,9 @@ class WorkExecution {
     this.executedByName = '',
     this.executionDate,
     this.notes = '',
+    this.operationTypeUnit = '',
+    this.roadSectionName = '',
+    this.roadSideDisplay = '',
     this.photoUrls = const [],
   });
 
@@ -52,7 +55,27 @@ class WorkExecution {
   final String executedByName;
   final String? executionDate;
   final String notes;
+  final String operationTypeUnit;
+  final String roadSectionName;
+  final String roadSideDisplay;
   final List<ExecutionPhoto> photoUrls;
+
+  String get locationLine {
+    final parts = <String>[
+      if (roadSectionName.isNotEmpty) roadSectionName,
+      if (roadSideDisplay.isNotEmpty && roadSideDisplay != 'Nije primjenjivo')
+        roadSideDisplay,
+    ];
+    return parts.join(' · ');
+  }
+
+  String get quantityWithUnit {
+    final unit = operationTypeUnit;
+    final qty = quantityExecuted == quantityExecuted.roundToDouble()
+        ? quantityExecuted.toStringAsFixed(0)
+        : quantityExecuted.toString();
+    return unit.isEmpty ? qty : '$qty $unit';
+  }
 
   factory WorkExecution.fromJson(Map<String, dynamic> json) {
     return WorkExecution(
@@ -66,6 +89,9 @@ class WorkExecution {
       executedByName: json['executed_by_name'] as String? ?? '',
       executionDate: json['execution_date'] as String?,
       notes: json['notes'] as String? ?? '',
+      operationTypeUnit: json['operation_type_unit'] as String? ?? '',
+      roadSectionName: json['road_section_name'] as String? ?? '',
+      roadSideDisplay: json['road_side_display'] as String? ?? '',
       photoUrls: (json['photo_urls'] as List?)
               ?.map((e) => ExecutionPhoto.fromJson(e as Map<String, dynamic>))
               .toList() ??

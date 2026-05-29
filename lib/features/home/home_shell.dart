@@ -4,25 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../daily_report/daily_report_screen.dart';
 import '../settings/settings_screen.dart';
 import '../work_orders/work_order_list_screen.dart';
+import 'home_shell_providers.dart';
 
-class HomeShell extends ConsumerStatefulWidget {
+class HomeShell extends ConsumerWidget {
   const HomeShell({super.key});
-
-  @override
-  ConsumerState<HomeShell> createState() => _HomeShellState();
-}
-
-class _HomeShellState extends ConsumerState<HomeShell> {
-  int _index = 0;
 
   static const _titles = ['Radni nalozi', 'Dnevni izvještaj', 'Postavke'];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final index = ref.watch(homeShellTabProvider);
+
     return Scaffold(
-      appBar: AppBar(title: Text(_titles[_index])),
+      appBar: AppBar(title: Text(_titles[index])),
       body: IndexedStack(
-        index: _index,
+        index: index,
         children: const [
           WorkOrderListScreen(),
           DailyReportScreen(),
@@ -30,8 +26,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        selectedIndex: index,
+        onDestinationSelected: (i) =>
+            ref.read(homeShellTabProvider.notifier).state = i,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.assignment_outlined),
