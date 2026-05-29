@@ -70,6 +70,131 @@ class WorkOrderRepository {
     );
     return res.data?['status'] as String? ?? '';
   }
+
+  Future<List<WorkerLookup>> fetchWorkers({String? search}) async {
+    final res = await _client.dio.get<dynamic>(
+      '${ApiConfig.fieldworkPrefix}/workers/',
+      queryParameters: {
+        if (search != null && search.isNotEmpty) 'search': search,
+      },
+    );
+    final list = res.data as List? ?? const [];
+    return list
+        .map((e) => WorkerLookup.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<VehicleLookup>> fetchVehicles({String? search}) async {
+    final res = await _client.dio.get<dynamic>(
+      '${ApiConfig.fieldworkPrefix}/vehicles/',
+      queryParameters: {
+        if (search != null && search.isNotEmpty) 'search': search,
+      },
+    );
+    final list = res.data as List? ?? const [];
+    return list
+        .map((e) => VehicleLookup.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<WorkOrderAssignment> createAssignment({
+    required int workOrderId,
+    required int zaposlenikId,
+    required String datum,
+    required double sati,
+    String uloga = '',
+    String napomena = '',
+  }) async {
+    final res = await _client.dio.post<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-assignments/',
+      data: {
+        'work_order': workOrderId,
+        'zaposlenik': zaposlenikId,
+        'datum': datum,
+        'sati': sati.toStringAsFixed(2),
+        if (uloga.isNotEmpty) 'uloga': uloga,
+        if (napomena.isNotEmpty) 'napomena': napomena,
+      },
+    );
+    return WorkOrderAssignment.fromJson(res.data!);
+  }
+
+  Future<WorkOrderAssignment> updateAssignment({
+    required int id,
+    String? datum,
+    double? sati,
+    String? uloga,
+    String? napomena,
+  }) async {
+    final data = <String, dynamic>{};
+    if (datum != null) data['datum'] = datum;
+    if (sati != null) data['sati'] = sati.toStringAsFixed(2);
+    if (uloga != null) data['uloga'] = uloga;
+    if (napomena != null) data['napomena'] = napomena;
+
+    final res = await _client.dio.patch<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-assignments/$id/',
+      data: data,
+    );
+    return WorkOrderAssignment.fromJson(res.data!);
+  }
+
+  Future<WorkOrderVehicle> createVehicle({
+    required int workOrderId,
+    required int voziloId,
+    required String datum,
+    required double sati,
+    String napomena = '',
+  }) async {
+    final res = await _client.dio.post<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-vehicles/',
+      data: {
+        'work_order': workOrderId,
+        'vozilo': voziloId,
+        'datum': datum,
+        'sati': sati.toStringAsFixed(2),
+        if (napomena.isNotEmpty) 'napomena': napomena,
+      },
+    );
+    return WorkOrderVehicle.fromJson(res.data!);
+  }
+
+  Future<WorkOrderVehicle> updateVehicle({
+    required int id,
+    String? datum,
+    double? sati,
+    String? napomena,
+  }) async {
+    final data = <String, dynamic>{};
+    if (datum != null) data['datum'] = datum;
+    if (sati != null) data['sati'] = sati.toStringAsFixed(2);
+    if (napomena != null) data['napomena'] = napomena;
+
+    final res = await _client.dio.patch<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-vehicles/$id/',
+      data: data,
+    );
+    return WorkOrderVehicle.fromJson(res.data!);
+  }
+
+  /// Brzi unos: PATCH ako postoji zapis za (nalog, djelatnik, datum), inače POST.
+  Future<WorkOrderAssignment> upsertAssignment({
+    required int workOrderId,
+    required int zaposlenikId,
+    required String datum,
+    required double sati,
+    WorkOrderAssignment? existing,
+  }) async {
+    if (existing != null) {
+      return updateAssignment(id: existing.id, datum: datum, sati: sati);
+    }
+    return createAssignment(
+      workOrderId: workOrderId,
+      zaposlenikId: zaposlenikId,
+      datum: datum,
+      sati: sati,
+    );
+  }
 }
 
 final workOrderRepositoryProvider = Provider<WorkOrderRepository>((ref) {

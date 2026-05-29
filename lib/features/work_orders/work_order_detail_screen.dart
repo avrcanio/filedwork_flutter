@@ -386,6 +386,7 @@ class _WorkItemTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unit = item.unit;
+    final locationLine = item.locationWithRoadSide;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -400,8 +401,8 @@ class _WorkItemTile extends StatelessWidget {
               '${item.quantity.toStringAsFixed(0)} $unit',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (item.roadSectionName.isNotEmpty)
-              Text(item.roadSectionName,
+            if (locationLine.isNotEmpty)
+              Text(locationLine,
                   style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 8),
             ExecutionProgressBar(percent: item.progressPercent),

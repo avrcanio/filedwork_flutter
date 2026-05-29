@@ -54,15 +54,29 @@ class AuthController extends StateNotifier<AuthState> {
       state = state.copyWith(status: AuthStatus.unauthenticated);
       return;
     }
-    final id = await _storage.readUserId();
-    final name = await _storage.readUserName();
+    try {
+      await _loadProfile();
+    } catch (_) {
+      final id = await _storage.readUserId();
+      final name = await _storage.readUserName();
+      state = state.copyWith(
+        status: AuthStatus.authenticated,
+        user: AuthUser(
+          id: id ?? 0,
+          username: name ?? '',
+          firstName: name ?? '',
+        ),
+      );
+    }
+  }
+
+  Future<void> _loadProfile() async {
+    final res = await _client.dio.get<Map<String, dynamic>>(ApiConfig.profilePath);
+    final user = AuthUser.fromJson(res.data ?? const {});
+    await _storage.saveUser(id: user.id, name: user.displayName);
     state = state.copyWith(
       status: AuthStatus.authenticated,
-      user: AuthUser(
-        id: id ?? 0,
-        username: name ?? '',
-        firstName: name ?? '',
-      ),
+      user: user,
     );
   }
 
@@ -78,7 +92,11 @@ class AuthController extends StateNotifier<AuthState> {
       if (token == null || token.isEmpty) {
         throw Exception('Token nije primljen.');
       }
-      final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
+      final userJson = Map<String, dynamic>.from(data['user'] as Map? ?? const {});
+      if (data['fieldwork'] != null) {
+        userJson['fieldwork'] = data['fieldwork'];
+      }
+      final user = AuthUser.fromJson(userJson);
       await _storage.saveToken(token);
       await _storage.saveUser(id: user.id, name: user.displayName);
       state = state.copyWith(

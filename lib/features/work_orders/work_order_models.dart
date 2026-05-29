@@ -6,6 +6,55 @@ double _toDouble(dynamic v) {
   return double.tryParse(v.toString()) ?? 0;
 }
 
+class WorkerLookup {
+  const WorkerLookup({
+    required this.id,
+    required this.label,
+    this.ime = '',
+    this.prezime = '',
+    this.pozicijaName = '',
+  });
+
+  final int id;
+  final String label;
+  final String ime;
+  final String prezime;
+  final String pozicijaName;
+
+  factory WorkerLookup.fromJson(Map<String, dynamic> json) {
+    return WorkerLookup(
+      id: json['id'] as int,
+      label: json['label'] as String? ?? '',
+      ime: json['ime'] as String? ?? '',
+      prezime: json['prezime'] as String? ?? '',
+      pozicijaName: json['pozicija_name'] as String? ?? '',
+    );
+  }
+}
+
+class VehicleLookup {
+  const VehicleLookup({
+    required this.id,
+    required this.label,
+    this.registracija = '',
+    this.tip = '',
+  });
+
+  final int id;
+  final String label;
+  final String registracija;
+  final String tip;
+
+  factory VehicleLookup.fromJson(Map<String, dynamic> json) {
+    return VehicleLookup(
+      id: json['id'] as int,
+      label: json['label'] as String? ?? '',
+      registracija: json['registracija'] as String? ?? '',
+      tip: json['tip'] as String? ?? '',
+    );
+  }
+}
+
 class WorkOrderAssignment {
   const WorkOrderAssignment({
     required this.id,

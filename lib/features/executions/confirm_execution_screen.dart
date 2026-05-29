@@ -251,10 +251,10 @@ class _ItemSummary extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(item.title, style: Theme.of(context).textTheme.titleMedium),
-            if (item.roadSectionName.isNotEmpty)
+            if (item.locationWithRoadSide.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
-                child: Text(item.roadSectionName,
+                child: Text(item.locationWithRoadSide,
                     style: Theme.of(context).textTheme.bodySmall),
               ),
             const SizedBox(height: 12),

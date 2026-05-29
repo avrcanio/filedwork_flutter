@@ -174,6 +174,7 @@ class _WorkItemMapScreenState extends ConsumerState<WorkItemMapScreen> {
                 mapType: _mapType,
                 myLocationEnabled: true,
                 myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
                 mapToolbarEnabled: false,
                 style: (_mapType == MapType.normal && isDark)
                     ? kDarkMapStyle

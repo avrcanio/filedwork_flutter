@@ -45,6 +45,22 @@ class WorkItem {
     return 'Stavka #$id';
   }
 
+  /// Strana ceste za prikaz; prazno za "Nije primjenjivo" (notap).
+  String get roadSideLabel {
+    if (roadSideDisplay.isEmpty || roadSideDisplay == 'Nije primjenjivo') {
+      return '';
+    }
+    return roadSideDisplay;
+  }
+
+  /// Lokacija (dionica) i strana ceste spojeni u jednu liniju.
+  String get locationWithRoadSide {
+    return [
+      if (roadSectionName.isNotEmpty) roadSectionName,
+      if (roadSideLabel.isNotEmpty) roadSideLabel,
+    ].join(' - ');
+  }
+
   factory WorkItem.fromJson(Map<String, dynamic> json) {
     return WorkItem(
       id: json['id'] as int,
