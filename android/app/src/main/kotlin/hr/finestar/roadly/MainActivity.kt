@@ -1,4 +1,4 @@
-package hr.dalekopro.fieldwork.fieldwork_flutter
+package hr.finestar.roadly
 
 import io.flutter.embedding.android.FlutterActivity
 

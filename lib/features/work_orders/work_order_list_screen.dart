@@ -20,7 +20,10 @@ class WorkOrderListScreen extends ConsumerWidget {
         _StatusFilterBar(selected: filter),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: () => ref.refresh(workOrderListProvider.future),
+            onRefresh: () {
+              ref.invalidate(workOrderStatusCountsProvider);
+              return ref.refresh(workOrderListProvider.future);
+            },
             child: AsyncValueView<List<WorkOrder>>(
               value: orders,
               onRetry: () => ref.invalidate(workOrderListProvider),
@@ -62,6 +65,7 @@ class _StatusFilterBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final counts = ref.watch(workOrderStatusCountsProvider).valueOrNull;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -70,12 +74,16 @@ class _StatusFilterBar extends ConsumerWidget {
           for (final (value, label) in _filters)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(label),
-                selected: selected == value,
-                onSelected: (_) => ref
-                    .read(workOrderStatusFilterProvider.notifier)
-                    .state = value,
+              child: Badge(
+                isLabelVisible: counts != null,
+                label: Text('${counts?.countFor(value) ?? 0}'),
+                child: ChoiceChip(
+                  label: Text(label),
+                  selected: selected == value,
+                  onSelected: (_) => ref
+                      .read(workOrderStatusFilterProvider.notifier)
+                      .state = value,
+                ),
               ),
             ),
         ],

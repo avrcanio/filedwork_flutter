@@ -6,6 +6,79 @@ double _toDouble(dynamic v) {
   return double.tryParse(v.toString()) ?? 0;
 }
 
+class WorkOrderAssignment {
+  const WorkOrderAssignment({
+    required this.id,
+    required this.zaposlenikName,
+    this.pozicijaName = '',
+    this.datum,
+    this.sati = 0,
+    this.uloga = '',
+    this.satnica = 0,
+    this.trosak = 0,
+    this.napomena = '',
+  });
+
+  final int id;
+  final String zaposlenikName;
+  final String pozicijaName;
+  final String? datum;
+  final double sati;
+  final String uloga;
+  final double satnica;
+  final double trosak;
+  final String napomena;
+
+  factory WorkOrderAssignment.fromJson(Map<String, dynamic> json) {
+    return WorkOrderAssignment(
+      id: json['id'] as int,
+      zaposlenikName: json['zaposlenik_name'] as String? ?? '',
+      pozicijaName: json['pozicija_name'] as String? ?? '',
+      datum: json['datum'] as String?,
+      sati: _toDouble(json['sati']),
+      uloga: json['uloga'] as String? ?? '',
+      satnica: _toDouble(json['satnica']),
+      trosak: _toDouble(json['trosak']),
+      napomena: json['napomena'] as String? ?? '',
+    );
+  }
+}
+
+class WorkOrderVehicle {
+  const WorkOrderVehicle({
+    required this.id,
+    required this.voziloLabel,
+    this.registracija = '',
+    this.datum,
+    this.sati = 0,
+    this.cijena = 0,
+    this.trosak = 0,
+    this.napomena = '',
+  });
+
+  final int id;
+  final String voziloLabel;
+  final String registracija;
+  final String? datum;
+  final double sati;
+  final double cijena;
+  final double trosak;
+  final String napomena;
+
+  factory WorkOrderVehicle.fromJson(Map<String, dynamic> json) {
+    return WorkOrderVehicle(
+      id: json['id'] as int,
+      voziloLabel: json['vozilo_label'] as String? ?? '',
+      registracija: json['registracija'] as String? ?? '',
+      datum: json['datum'] as String?,
+      sati: _toDouble(json['sati']),
+      cijena: _toDouble(json['cijena']),
+      trosak: _toDouble(json['trosak']),
+      napomena: json['napomena'] as String? ?? '',
+    );
+  }
+}
+
 class WorkOrder {
   const WorkOrder({
     required this.id,
@@ -19,7 +92,11 @@ class WorkOrder {
     this.scheduledDate,
     this.completedDate,
     this.totalValue = 0,
+    this.laborCost = 0,
+    this.vehicleCost = 0,
     this.workItems = const [],
+    this.assignments = const [],
+    this.vehicles = const [],
   });
 
   final int id;
@@ -33,7 +110,11 @@ class WorkOrder {
   final String? scheduledDate;
   final String? completedDate;
   final double totalValue;
+  final double laborCost;
+  final double vehicleCost;
   final List<WorkItem> workItems;
+  final List<WorkOrderAssignment> assignments;
+  final List<WorkOrderVehicle> vehicles;
 
   bool get canStart => status == 'approved';
   bool get canComplete => status == 'in_progress';
@@ -53,8 +134,18 @@ class WorkOrder {
       scheduledDate: json['scheduled_date'] as String?,
       completedDate: json['completed_date'] as String?,
       totalValue: _toDouble(json['total_value']),
+      laborCost: _toDouble(json['labor_cost']),
+      vehicleCost: _toDouble(json['vehicle_cost']),
       workItems: (json['work_items'] as List?)
               ?.map((e) => WorkItem.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      assignments: (json['assignments'] as List?)
+              ?.map((e) => WorkOrderAssignment.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      vehicles: (json['vehicles'] as List?)
+              ?.map((e) => WorkOrderVehicle.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
     );

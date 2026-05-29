@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/theme/map_styles.dart';
@@ -25,11 +26,39 @@ class WorkItemMapScreen extends ConsumerStatefulWidget {
 
 class _WorkItemMapScreenState extends ConsumerState<WorkItemMapScreen> {
   GoogleMapController? _controller;
+  MapType _mapType = MapType.normal;
 
   @override
   void dispose() {
     _controller?.dispose();
     super.dispose();
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _goToMyLocation() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      _snack('Lokacijske usluge su isključene.');
+      return;
+    }
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.denied ||
+        perm == LocationPermission.deniedForever) {
+      _snack('Nema dozvole za lokaciju.');
+      return;
+    }
+    final pos = await Geolocator.getCurrentPosition();
+    await _controller?.animateCamera(
+      CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
+    );
   }
 
   ({Set<Polygon> polygons, Set<Polyline> polylines, LatLngBounds? bounds})
@@ -104,7 +133,22 @@ class _WorkItemMapScreenState extends ConsumerState<WorkItemMapScreen> {
     ref.watch(themeControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Karta — ${widget.title}')),
+      appBar: AppBar(
+        title: Text('Karta — ${widget.title}'),
+        actions: [
+          PopupMenuButton<MapType>(
+            icon: const Icon(Icons.layers_outlined),
+            tooltip: 'Tip karte',
+            initialValue: _mapType,
+            onSelected: (value) => setState(() => _mapType = value),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: MapType.normal, child: Text('Normalna')),
+              PopupMenuItem(value: MapType.satellite, child: Text('Satelit')),
+              PopupMenuItem(value: MapType.hybrid, child: Text('Hibrid')),
+            ],
+          ),
+        ],
+      ),
       body: AsyncValueView<List<WorkItemGeoFeature>>(
         value: geojson,
         onRetry: () =>
@@ -120,18 +164,36 @@ class _WorkItemMapScreenState extends ConsumerState<WorkItemMapScreen> {
               ? overlays.bounds!.southwest
               : const LatLng(43.73, 15.9);
 
-          return GoogleMap(
-            initialCameraPosition: CameraPosition(target: initial, zoom: 11),
-            polygons: overlays.polygons,
-            polylines: overlays.polylines,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: true,
-            mapToolbarEnabled: false,
-            style: isDark ? kDarkMapStyle : null,
-            onMapCreated: (controller) {
-              _controller = controller;
-              _fit(overlays.bounds);
-            },
+          return Stack(
+            children: [
+              GoogleMap(
+                initialCameraPosition:
+                    CameraPosition(target: initial, zoom: 11),
+                polygons: overlays.polygons,
+                polylines: overlays.polylines,
+                mapType: _mapType,
+                myLocationEnabled: true,
+                myLocationButtonEnabled: false,
+                mapToolbarEnabled: false,
+                style: (_mapType == MapType.normal && isDark)
+                    ? kDarkMapStyle
+                    : null,
+                onMapCreated: (controller) {
+                  _controller = controller;
+                  _fit(overlays.bounds);
+                },
+              ),
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: FloatingActionButton(
+                  heroTag: 'mapMyLocation',
+                  tooltip: 'Moja lokacija',
+                  onPressed: _goToMyLocation,
+                  child: const Icon(Icons.my_location),
+                ),
+              ),
+            ],
           );
         },
       ),

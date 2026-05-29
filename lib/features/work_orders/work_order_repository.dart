@@ -4,6 +4,28 @@ import '../../config/api_config.dart';
 import '../../core/network/api_client.dart';
 import 'work_order_models.dart';
 
+/// Globalni broj radnih naloga po statusu (za badge na filterima).
+class WorkOrderStatusCounts {
+  const WorkOrderStatusCounts({required this.total, required this.byStatus});
+
+  final int total;
+  final Map<String, int> byStatus;
+
+  /// Broj za zadani status; `null` status vraća ukupan broj ("Svi").
+  int countFor(String? status) =>
+      status == null ? total : (byStatus[status] ?? 0);
+
+  factory WorkOrderStatusCounts.fromJson(Map<String, dynamic> json) {
+    final raw = (json['by_status'] as Map?) ?? const {};
+    return WorkOrderStatusCounts(
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      byStatus: raw.map(
+        (key, value) => MapEntry(key.toString(), (value as num).toInt()),
+      ),
+    );
+  }
+}
+
 class WorkOrderRepository {
   WorkOrderRepository(this._client);
 
@@ -23,6 +45,13 @@ class WorkOrderRepository {
     return list
         .map((e) => WorkOrder.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<WorkOrderStatusCounts> fetchStatusCounts() async {
+    final res = await _client.dio.get<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-orders/status-counts/',
+    );
+    return WorkOrderStatusCounts.fromJson(res.data!);
   }
 
   Future<WorkOrder> fetchDetail(int id) async {
@@ -55,6 +84,11 @@ final workOrderListProvider =
   final repo = ref.watch(workOrderRepositoryProvider);
   final status = ref.watch(workOrderStatusFilterProvider);
   return repo.fetchList(status: status);
+});
+
+final workOrderStatusCountsProvider =
+    FutureProvider.autoDispose<WorkOrderStatusCounts>((ref) async {
+  return ref.watch(workOrderRepositoryProvider).fetchStatusCounts();
 });
 
 final workOrderDetailProvider =

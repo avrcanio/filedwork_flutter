@@ -26,6 +26,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
       await action();
       ref.invalidate(workOrderDetailProvider(workOrderId));
       ref.invalidate(workOrderListProvider);
+      ref.invalidate(workOrderStatusCountsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(successMessage)),
@@ -91,6 +92,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                   'Nalog završen.',
                 ),
               ),
+              const SizedBox(height: 20),
+              _AssignmentsSection(order: order),
+              const SizedBox(height: 16),
+              _VehiclesSection(order: order),
               const SizedBox(height: 20),
               Text(
                 'Stavke (${order.workItems.length})',
@@ -239,6 +244,131 @@ class _ActionButtons extends StatelessWidget {
       );
     }
     return const SizedBox.shrink();
+  }
+}
+
+String _formatEur(double value) {
+  return '€${value.toStringAsFixed(2)}';
+}
+
+class _AssignmentsSection extends StatelessWidget {
+  const _AssignmentsSection({required this.order});
+
+  final WorkOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.people_outline, size: 20),
+            const SizedBox(width: 6),
+            Text(
+              'Djelatnici (${order.assignments.length})',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (order.assignments.isEmpty)
+          Text(
+            'Nema dodijeljenih djelatnika.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          )
+        else
+          ...order.assignments.map(
+            (a) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(a.zaposlenikName),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (a.pozicijaName.isNotEmpty) Text(a.pozicijaName),
+                    if (a.uloga.isNotEmpty) Text(a.uloga),
+                    Text('${a.sati.toStringAsFixed(1)} h · ${_formatEur(a.trosak)}'),
+                    if (a.datum != null) Text('Datum: ${a.datum}'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (order.assignments.isNotEmpty)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'Ukupno: ${_formatEur(order.laborCost)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _VehiclesSection extends StatelessWidget {
+  const _VehiclesSection({required this.order});
+
+  final WorkOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.local_shipping_outlined, size: 20),
+            const SizedBox(width: 6),
+            Text(
+              'Vozila (${order.vehicles.length})',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (order.vehicles.isEmpty)
+          Text(
+            'Nema dodijeljenih vozila.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          )
+        else
+          ...order.vehicles.map(
+            (v) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(v.voziloLabel),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (v.registracija.isNotEmpty) Text(v.registracija),
+                    Text('${v.sati.toStringAsFixed(1)} h · ${_formatEur(v.trosak)}'),
+                    if (v.datum != null) Text('Datum: ${v.datum}'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (order.vehicles.isNotEmpty)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'Ukupno: ${_formatEur(order.vehicleCost)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+      ],
+    );
   }
 }
 
