@@ -6,6 +6,13 @@ double _toDouble(dynamic v) {
   return double.tryParse(v.toString()) ?? 0;
 }
 
+enum DailyReportScope { personal, projectFull }
+
+DailyReportScope _parseReportScope(String? raw) {
+  if (raw == 'project_full') return DailyReportScope.projectFull;
+  return DailyReportScope.personal;
+}
+
 class DailyReportSummary {
   const DailyReportSummary({
     required this.executionsCount,
@@ -115,17 +122,20 @@ class DailyReportLaborAssignment {
     required this.id,
     required this.zaposlenikName,
     required this.sati,
+    this.voziloLabel = '',
   });
 
   final int id;
   final String zaposlenikName;
   final double sati;
+  final String voziloLabel;
 
   factory DailyReportLaborAssignment.fromJson(Map<String, dynamic> json) {
     return DailyReportLaborAssignment(
       id: json['id'] as int? ?? 0,
       zaposlenikName: json['zaposlenik_name'] as String? ?? '',
       sati: _toDouble(json['sati']),
+      voziloLabel: json['vozilo_label'] as String? ?? '',
     );
   }
 }
@@ -191,6 +201,12 @@ class DailyReportGroup {
     this.laborHours = 0,
     this.vehicleHours = 0,
     this.vehicles = const [],
+    this.myLaborHours = 0,
+    this.teamLaborHours = 0,
+    this.teamAssignments = const [],
+    this.teamVehicleHours = 0,
+    this.teamVehicles = const [],
+    this.workOrderPhotos = const [],
   });
 
   final int workOrderId;
@@ -202,11 +218,25 @@ class DailyReportGroup {
   final double vehicleHours;
   final List<DailyReportVehicleEntry> vehicles;
   final List<WorkExecution> executions;
+  final double myLaborHours;
+  final double teamLaborHours;
+  final List<DailyReportLaborAssignment> teamAssignments;
+  final double teamVehicleHours;
+  final List<DailyReportVehicleEntry> teamVehicles;
+  final List<ExecutionPhoto> workOrderPhotos;
+
+  bool get hasTeamData =>
+      teamAssignments.isNotEmpty ||
+      teamLaborHours > 0 ||
+      teamVehicleHours > 0 ||
+      teamVehicles.isNotEmpty;
 
   bool get hasContent =>
       executionsCount > 0 ||
       laborHours > 0 ||
-      vehicleHours > 0;
+      vehicleHours > 0 ||
+      teamLaborHours > 0 ||
+      teamVehicleHours > 0;
 
   String get quantitySummary {
     if (quantityByUnit.isEmpty) return '';
@@ -225,6 +255,7 @@ class DailyReportGroup {
 
   factory DailyReportGroup.fromJson(Map<String, dynamic> json) {
     final qtyRaw = (json['quantity_by_unit'] as Map?) ?? {};
+    final myLabor = _toDouble(json['my_labor_hours'] ?? json['labor_hours']);
     return DailyReportGroup(
       workOrderId: json['work_order_id'] as int? ?? 0,
       workOrderNumber: json['work_order_number'] as String? ?? '',
@@ -243,6 +274,24 @@ class DailyReportGroup {
               ?.map((e) => WorkExecution.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
+      myLaborHours: myLabor,
+      teamLaborHours: _toDouble(json['team_labor_hours']),
+      teamAssignments: (json['team_assignments'] as List?)
+              ?.map((e) => DailyReportLaborAssignment.fromJson(
+                    e as Map<String, dynamic>,
+                  ))
+              .toList() ??
+          const [],
+      teamVehicleHours: _toDouble(json['team_vehicle_hours']),
+      teamVehicles: (json['team_vehicles'] as List?)
+              ?.map((e) =>
+                  DailyReportVehicleEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      workOrderPhotos: (json['work_order_photos'] as List?)
+              ?.map((e) => ExecutionPhoto.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
   }
 }
@@ -253,18 +302,24 @@ class DailyReport {
     required this.summary,
     required this.executions,
     required this.byWorkOrder,
+    this.reportScope = DailyReportScope.personal,
     this.executedByName = '',
     this.laborHours,
     this.vehicleHours,
+    this.dayPhotos = const [],
   });
 
   final String date;
+  final DailyReportScope reportScope;
   final String executedByName;
   final DailyReportSummary summary;
   final List<WorkExecution> executions;
   final List<DailyReportGroup> byWorkOrder;
   final DailyReportLaborHours? laborHours;
   final DailyReportVehicleHours? vehicleHours;
+  final List<ExecutionPhoto> dayPhotos;
+
+  bool get isProjectFull => reportScope == DailyReportScope.projectFull;
 
   bool get hasExecutions => executions.isNotEmpty;
 
@@ -304,6 +359,11 @@ class DailyReport {
             laborHours: lg.hours,
             vehicleHours: existing.vehicleHours,
             vehicles: existing.vehicles,
+            myLaborHours: existing.myLaborHours,
+            teamLaborHours: existing.teamLaborHours,
+            teamAssignments: existing.teamAssignments,
+            teamVehicleHours: existing.teamVehicleHours,
+            teamVehicles: existing.teamVehicles,
           );
         } else {
           map[lg.workOrderId] = DailyReportGroup(
@@ -332,6 +392,11 @@ class DailyReport {
             laborHours: existing.laborHours,
             vehicleHours: vg.hours,
             vehicles: vg.vehicles,
+            myLaborHours: existing.myLaborHours,
+            teamLaborHours: existing.teamLaborHours,
+            teamAssignments: existing.teamAssignments,
+            teamVehicleHours: existing.teamVehicleHours,
+            teamVehicles: existing.teamVehicles,
           );
         } else {
           map[vg.workOrderId] = DailyReportGroup(
@@ -358,6 +423,7 @@ class DailyReport {
     final vehicleRaw = json['vehicle_hours'] as Map<String, dynamic>?;
     return DailyReport(
       date: json['date'] as String? ?? '',
+      reportScope: _parseReportScope(json['report_scope'] as String?),
       executedByName: executedBy?['name'] as String? ?? '',
       summary: DailyReportSummary.fromJson(
         (json['summary'] as Map<String, dynamic>?) ?? const {},
@@ -376,6 +442,10 @@ class DailyReport {
       vehicleHours: vehicleRaw != null
           ? DailyReportVehicleHours.fromJson(vehicleRaw)
           : null,
+      dayPhotos: (json['day_photos'] as List?)
+              ?.map((e) => ExecutionPhoto.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
   }
 }

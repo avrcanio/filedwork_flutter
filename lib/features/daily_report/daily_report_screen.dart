@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../shared/utils/app_dates.dart';
 import '../../shared/widgets/async_value_view.dart';
 import '../../shared/widgets/photo_gallery.dart';
 import '../auth/auth_controller.dart';
 import '../auth/auth_models.dart';
 import '../executions/execution_models.dart';
 import '../home/home_shell_providers.dart';
+import '../project/project_repository.dart';
+import '../project/project_selector_bar.dart';
+import '../project/selected_project_controller.dart';
 import '../work_orders/work_order_detail_screen.dart';
 import '../work_orders/work_order_repository.dart';
 import 'daily_report_models.dart';
@@ -19,14 +23,18 @@ class DailyReportScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(dailyReportViewModeProvider);
+    final projectId = ref.watch(selectedProjectIdProvider);
 
     return Column(
       children: [
+        const ProjectSelectorBar(),
         const _DateBar(),
         Expanded(
-          child: mode == DailyReportViewMode.week
-              ? const _WeeklyReportBody()
-              : const _DailyReportBody(),
+          child: projectId == null
+              ? const Center(child: Text('Nema aktivnih projekata.'))
+              : mode == DailyReportViewMode.week
+                  ? const _WeeklyReportBody()
+                  : const _DailyReportBody(),
         ),
       ],
     );
@@ -86,9 +94,9 @@ class _DateBar extends ConsumerWidget {
                     icon: const Icon(Icons.calendar_today_outlined, size: 18),
                     label: Text(
                       mode == DailyReportViewMode.week
-                          ? '${DateFormat('dd.MM.', 'hr').format(weekStart)} – '
-                              '${DateFormat('dd.MM.yyyy.', 'hr').format(weekStart.add(const Duration(days: 6)))}'
-                          : DateFormat('EEEE, dd.MM.yyyy.', 'hr').format(date),
+                          ? '${formatDisplayDate(weekStart)} – '
+                              '${formatDisplayDate(weekStart.add(const Duration(days: 6)))}'
+                          : '${DateFormat('EEEE', 'hr').format(date)}, ${formatDisplayDate(date)}',
                     ),
                     onPressed: () async {
                       final picked = await showDatePicker(
@@ -126,7 +134,10 @@ class _DailyReportBody extends ConsumerWidget {
         ref.watch(authControllerProvider).user?.fieldwork ?? FieldworkCapabilities.empty;
 
     return RefreshIndicator(
-      onRefresh: () => ref.refresh(dailyReportProvider.future),
+      onRefresh: () {
+        ref.invalidate(activeProjectsProvider);
+        return ref.refresh(dailyReportProvider.future);
+      },
       child: AsyncValueView<DailyReport>(
         value: report,
         onRetry: () => ref.invalidate(dailyReportProvider),
@@ -134,13 +145,23 @@ class _DailyReportBody extends ConsumerWidget {
           if (data.isEmpty) {
             return _EmptyDayView(fieldwork: fieldwork);
           }
-          final photos = _collectPhotos(data.executions);
+          final photos = _collectPhotos(data);
           final groups = data.unifiedWorkOrders;
 
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _SummaryCard(summary: data.summary),
+              _SummaryCard(
+                summary: data.summary,
+                isProjectFull: data.isProjectFull,
+              ),
+              if (data.laborHours != null && data.laborHours!.hasEntries) ...[
+                const SizedBox(height: 16),
+                _LaborHoursCard(
+                  laborHours: data.laborHours!,
+                  isProjectFull: data.isProjectFull,
+                ),
+              ],
               if (photos.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 _DayPhotoGallery(photos: photos),
@@ -150,7 +171,12 @@ class _DailyReportBody extends ConsumerWidget {
                 Text('Po radnom nalogu',
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                ...groups.map((g) => _UnifiedWorkOrderCard(group: g)),
+                ...groups.map(
+                  (g) => _UnifiedWorkOrderCard(
+                    group: g,
+                    isProjectFull: data.isProjectFull,
+                  ),
+                ),
               ],
             ],
           );
@@ -159,15 +185,25 @@ class _DailyReportBody extends ConsumerWidget {
     );
   }
 
-  List<ExecutionPhoto> _collectPhotos(List<WorkExecution> executions) {
+  List<ExecutionPhoto> _collectPhotos(DailyReport data) {
     final seen = <String>{};
     final photos = <ExecutionPhoto>[];
-    for (final e in executions) {
-      for (final p in e.photoUrls) {
+
+    void addAll(Iterable<ExecutionPhoto> list) {
+      for (final p in list) {
         if (p.url.isNotEmpty && seen.add(p.url)) {
           photos.add(p);
         }
       }
+    }
+
+    addAll(data.dayPhotos);
+    for (final e in data.executions) {
+      addAll(e.photoUrls);
+    }
+    for (final g in data.unifiedWorkOrders) {
+      addAll(g.executions.expand((e) => e.photoUrls));
+      addAll(g.workOrderPhotos);
     }
     return photos;
   }
@@ -181,7 +217,10 @@ class _WeeklyReportBody extends ConsumerWidget {
     final report = ref.watch(weeklyReportProvider);
 
     return RefreshIndicator(
-      onRefresh: () => ref.refresh(weeklyReportProvider.future),
+      onRefresh: () {
+        ref.invalidate(activeProjectsProvider);
+        return ref.refresh(weeklyReportProvider.future);
+      },
       child: AsyncValueView<WeeklyReport>(
         value: report,
         onRetry: () => ref.invalidate(weeklyReportProvider),
@@ -222,7 +261,7 @@ class _WeeklyReportBody extends ConsumerWidget {
                                   day: day,
                                   maxScore: maxScore > 0 ? maxScore : 1,
                                   onTap: () {
-                                    final parsed = DateTime.tryParse(day.date);
+                                    final parsed = parseApiDate(day.date);
                                     if (parsed == null) return;
                                     ref.read(dailyReportDateProvider.notifier).state =
                                         parsed;
@@ -261,7 +300,7 @@ class _WeekBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parsed = DateTime.tryParse(day.date);
+    final parsed = parseApiDate(day.date);
     final label = parsed != null
         ? DateFormat('E', 'hr').format(parsed).substring(0, 2)
         : '';
@@ -305,9 +344,9 @@ class _WeeklyDayTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parsed = DateTime.tryParse(day.date);
+    final parsed = parseApiDate(day.date);
     final dateLabel = parsed != null
-        ? DateFormat('EEEE, dd.MM.', 'hr').format(parsed)
+        ? '${DateFormat('EEEE', 'hr').format(parsed)}, ${formatDisplayDate(parsed)}'
         : day.date;
 
     return Card(
@@ -371,10 +410,14 @@ class _EmptyDayView extends ConsumerWidget {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.summary});
+class _LaborHoursCard extends StatelessWidget {
+  const _LaborHoursCard({
+    required this.laborHours,
+    this.isProjectFull = false,
+  });
 
-  final DailyReportSummary summary;
+  final DailyReportLaborHours laborHours;
+  final bool isProjectFull;
 
   @override
   Widget build(BuildContext context) {
@@ -384,7 +427,63 @@ class _SummaryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sažetak', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              isProjectFull ? 'Sati rada (projekt)' : 'Moji sati rada',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Ukupno: ${laborHours.totalHours.toStringAsFixed(1)} h',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            for (final group in laborHours.byWorkOrder) ...[
+              Text(
+                group.workOrderNumber,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              for (final a in group.assignments)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(a.zaposlenikName),
+                  subtitle: a.voziloLabel.isNotEmpty
+                      ? Text('Stroj: ${a.voziloLabel}')
+                      : null,
+                  trailing: Text('${a.sati.toStringAsFixed(1)} h'),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.summary,
+    this.isProjectFull = false,
+  });
+
+  final DailyReportSummary summary;
+  final bool isProjectFull;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isProjectFull ? 'Sažetak projekta' : 'Sažetak',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -480,15 +579,23 @@ class _DayPhotoGallery extends StatelessWidget {
 }
 
 class _UnifiedWorkOrderCard extends StatelessWidget {
-  const _UnifiedWorkOrderCard({required this.group});
+  const _UnifiedWorkOrderCard({
+    required this.group,
+    this.isProjectFull = false,
+  });
 
   final DailyReportGroup group;
+  final bool isProjectFull;
 
   @override
   Widget build(BuildContext context) {
     final execLabel = group.executionsCount == 1
         ? '1 izvršenje'
         : '${group.executionsCount} izvršenja';
+    final displayLaborHours =
+        isProjectFull ? group.laborHours : group.myLaborHours;
+    final teamAssignments = group.teamAssignments;
+    final teamVehicles = group.teamVehicles;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -518,15 +625,31 @@ class _UnifiedWorkOrderCard extends StatelessWidget {
               if (group.workOrderTitle.isNotEmpty) Text(group.workOrderTitle),
               if (group.quantitySummary.isNotEmpty)
                 Text('Izvršeno: ${group.quantitySummary} ($execLabel)'),
-              if (group.laborHours > 0)
-                Text('Moji sati: ${group.laborHours.toStringAsFixed(1)} h'),
-              if (group.vehicleHours > 0)
-                Text(
-                  group.vehicles.isNotEmpty
-                      ? 'Vozilo: ${group.vehicles.first.voziloLabel} · '
-                          '${group.vehicleHours.toStringAsFixed(1)} h'
-                      : 'Vozilo: ${group.vehicleHours.toStringAsFixed(1)} h',
-                ),
+              if (isProjectFull) ...[
+                if (group.laborHours > 0)
+                  Text('Sati rada: ${group.laborHours.toStringAsFixed(1)} h'),
+                if (group.vehicleHours > 0)
+                  Text(
+                    group.vehicles.isNotEmpty
+                        ? 'Vozila: ${group.vehicles.first.voziloLabel} · '
+                            '${group.vehicleHours.toStringAsFixed(1)} h'
+                        : 'Vozila: ${group.vehicleHours.toStringAsFixed(1)} h',
+                  ),
+              ] else ...[
+                if (displayLaborHours > 0)
+                  Text('Moji sati: ${displayLaborHours.toStringAsFixed(1)} h'),
+                if (group.teamLaborHours > 0 && group.hasTeamData)
+                  Text(
+                    'Ekipa: ${group.teamLaborHours.toStringAsFixed(1)} h',
+                  ),
+                if (group.vehicleHours > 0)
+                  Text(
+                    group.vehicles.isNotEmpty
+                        ? 'Vozilo: ${group.vehicles.first.voziloLabel} · '
+                            '${group.vehicleHours.toStringAsFixed(1)} h'
+                        : 'Vozilo: ${group.vehicleHours.toStringAsFixed(1)} h',
+                  ),
+              ],
             ],
           ),
           trailing: group.executionsCount > 0
@@ -540,19 +663,50 @@ class _UnifiedWorkOrderCard extends StatelessWidget {
                 )
               : null,
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          children: group.executions.isEmpty
-              ? [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      'Nema detalja izvršenja.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+          children: [
+            if (teamAssignments.isNotEmpty) ...[
+              Text(
+                isProjectFull ? 'Djelatnici' : 'Ekipa na nalogu',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              for (final a in teamAssignments)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(a.zaposlenikName),
+                  subtitle: a.voziloLabel.isNotEmpty
+                      ? Text('Stroj: ${a.voziloLabel}')
+                      : null,
+                  trailing: Text('${a.sati.toStringAsFixed(1)} h'),
+                ),
+              if (teamVehicles.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Vozila/strojevi',
+                    style: Theme.of(context).textTheme.labelLarge),
+                for (final v in teamVehicles)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(v.voziloLabel),
+                    subtitle: v.registracija.isNotEmpty
+                        ? Text(v.registracija)
+                        : null,
+                    trailing: Text('${v.sati.toStringAsFixed(1)} h'),
                   ),
-                ]
-              : group.executions
-                  .map((e) => _ExecutionRow(execution: e))
-                  .toList(),
+              ],
+              if (group.executions.isNotEmpty) const Divider(height: 24),
+            ],
+            if (group.executions.isEmpty && teamAssignments.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Nema detalja izvršenja.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              )
+            else if (group.executions.isNotEmpty)
+              ...group.executions.map((e) => _ExecutionRow(execution: e)),
+          ],
         ),
     );
   }

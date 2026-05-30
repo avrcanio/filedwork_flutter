@@ -4,16 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
-
 import '../../core/network/api_client.dart';
+import '../../shared/utils/app_dates.dart';
 import '../work_items/work_item_models.dart';
 import 'execution_repository.dart';
 
 class ConfirmExecutionScreen extends ConsumerStatefulWidget {
-  const ConfirmExecutionScreen({super.key, required this.item});
+  const ConfirmExecutionScreen({
+    super.key,
+    required this.item,
+    required this.workOrderStatus,
+  });
 
   final WorkItem item;
+  final String workOrderStatus;
 
   @override
   ConsumerState<ConfirmExecutionScreen> createState() =>
@@ -26,13 +30,20 @@ class _ConfirmExecutionScreenState
   final _qtyCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _picker = ImagePicker();
-  final List<XFile> _photos = [];
+  final List<XFile> _photosBefore = [];
+  final List<XFile> _photosAfter = [];
 
   DateTime _date = DateTime.now();
   bool _submitting = false;
   String? _statusMessage;
 
-  static const _maxPhotos = 5;
+  static const _maxPhotosPerPhase = 5;
+
+  bool get _showBeforeSection => widget.workOrderStatus == 'in_progress';
+
+  bool get _showAfterSection =>
+      widget.workOrderStatus == 'in_progress' ||
+      widget.workOrderStatus == 'completed';
 
   @override
   void initState() {
@@ -52,9 +63,14 @@ class _ConfirmExecutionScreenState
     return v.toString();
   }
 
-  Future<void> _pickPhoto(ImageSource source) async {
-    if (_photos.length >= _maxPhotos) {
-      _showSnack('Najviše $_maxPhotos fotografija po izvršenju.');
+  Future<void> _pickPhoto(ImageSource source, {required bool before}) async {
+    final list = before ? _photosBefore : _photosAfter;
+    if (list.length >= _maxPhotosPerPhase) {
+      _showSnack(
+        before
+            ? 'Najviše $_maxPhotosPerPhase fotografija prije radova.'
+            : 'Najviše $_maxPhotosPerPhase fotografija poslije radova.',
+      );
       return;
     }
     try {
@@ -64,7 +80,13 @@ class _ConfirmExecutionScreenState
         imageQuality: 85,
       );
       if (file != null) {
-        setState(() => _photos.add(file));
+        setState(() {
+          if (before) {
+            _photosBefore.add(file);
+          } else {
+            _photosAfter.add(file);
+          }
+        });
       }
     } catch (_) {
       _showSnack('Nije moguće dohvatiti fotografiju.');
@@ -92,21 +114,27 @@ class _ConfirmExecutionScreenState
       final execution = await repo.createExecution(
         workItemId: widget.item.id,
         quantityExecuted: qty,
-        executionDate: DateFormat('yyyy-MM-dd').format(_date),
+        executionDate: toApiDate(_date),
         notes: _notesCtrl.text.trim(),
       );
 
+      final toUpload = <({XFile file, String phase})>[
+        for (final p in _photosBefore) (file: p, phase: 'before'),
+        for (final p in _photosAfter) (file: p, phase: 'after'),
+      ];
+
       var uploaded = 0;
       var failed = 0;
-      for (final photo in _photos) {
+      for (final entry in toUpload) {
         if (mounted) {
           setState(() => _statusMessage =
-              'Upload fotografija ${uploaded + 1}/${_photos.length}…');
+              'Upload fotografija ${uploaded + 1}/${toUpload.length}…');
         }
         try {
           await repo.uploadPhoto(
             executionId: execution.id,
-            filePath: photo.path,
+            filePath: entry.file.path,
+            phase: entry.phase,
           );
           uploaded++;
         } catch (_) {
@@ -189,14 +217,35 @@ class _ConfirmExecutionScreenState
               const SizedBox(height: 24),
               Text('Fotodokumentacija',
                   style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              _PhotoPicker(
-                photos: _photos,
-                maxPhotos: _maxPhotos,
-                onCamera: () => _pickPhoto(ImageSource.camera),
-                onGallery: () => _pickPhoto(ImageSource.gallery),
-                onRemove: (i) => setState(() => _photos.removeAt(i)),
+              const SizedBox(height: 4),
+              Text(
+                'Do $_maxPhotosPerPhase fotografija prije i $_maxPhotosPerPhase poslije radova.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
+              if (_showBeforeSection) ...[
+                const SizedBox(height: 16),
+                _PhotoSection(
+                  title: 'Prije radova',
+                  photos: _photosBefore,
+                  maxPhotos: _maxPhotosPerPhase,
+                  onCamera: () => _pickPhoto(ImageSource.camera, before: true),
+                  onGallery: () =>
+                      _pickPhoto(ImageSource.gallery, before: true),
+                  onRemove: (i) => setState(() => _photosBefore.removeAt(i)),
+                ),
+              ],
+              if (_showAfterSection) ...[
+                const SizedBox(height: 16),
+                _PhotoSection(
+                  title: 'Poslije radova',
+                  photos: _photosAfter,
+                  maxPhotos: _maxPhotosPerPhase,
+                  onCamera: () => _pickPhoto(ImageSource.camera, before: false),
+                  onGallery: () =>
+                      _pickPhoto(ImageSource.gallery, before: false),
+                  onRemove: (i) => setState(() => _photosAfter.removeAt(i)),
+                ),
+              ],
               const SizedBox(height: 28),
               if (_statusMessage != null) ...[
                 Row(
@@ -325,7 +374,7 @@ class _DatePickerTile extends StatelessWidget {
       child: ListTile(
         leading: const Icon(Icons.event_outlined),
         title: const Text('Datum izvršenja'),
-        subtitle: Text(DateFormat('dd.MM.yyyy').format(date)),
+        subtitle: Text(formatDisplayDate(date)),
         trailing: const Icon(Icons.edit_calendar_outlined),
         onTap: () async {
           final picked = await showDatePicker(
@@ -341,8 +390,9 @@ class _DatePickerTile extends StatelessWidget {
   }
 }
 
-class _PhotoPicker extends StatelessWidget {
-  const _PhotoPicker({
+class _PhotoSection extends StatelessWidget {
+  const _PhotoSection({
+    required this.title,
     required this.photos,
     required this.maxPhotos,
     required this.onCamera,
@@ -350,6 +400,7 @@ class _PhotoPicker extends StatelessWidget {
     required this.onRemove,
   });
 
+  final String title;
   final List<XFile> photos;
   final int maxPhotos;
   final VoidCallback onCamera;
@@ -361,6 +412,8 @@ class _PhotoPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(title, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
         Row(
           children: [
             OutlinedButton.icon(
@@ -377,8 +430,10 @@ class _PhotoPicker extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        Text('${photos.length}/$maxPhotos fotografija',
-            style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          '${photos.length}/$maxPhotos fotografija',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
         if (photos.isNotEmpty) ...[
           const SizedBox(height: 12),
           Wrap(

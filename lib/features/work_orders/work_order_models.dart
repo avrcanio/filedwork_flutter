@@ -61,6 +61,8 @@ class WorkOrderAssignment {
     this.zaposlenikId,
     required this.zaposlenikName,
     this.pozicijaName = '',
+    this.voziloId,
+    this.voziloLabel = '',
     this.datum,
     this.sati = 0,
     this.uloga = '',
@@ -73,6 +75,8 @@ class WorkOrderAssignment {
   final int? zaposlenikId;
   final String zaposlenikName;
   final String pozicijaName;
+  final int? voziloId;
+  final String voziloLabel;
   final String? datum;
   final double sati;
   final String uloga;
@@ -86,6 +90,8 @@ class WorkOrderAssignment {
       zaposlenikId: (json['zaposlenik'] as num?)?.toInt(),
       zaposlenikName: json['zaposlenik_name'] as String? ?? '',
       pozicijaName: json['pozicija_name'] as String? ?? '',
+      voziloId: (json['vozilo'] as num?)?.toInt(),
+      voziloLabel: json['vozilo_label'] as String? ?? '',
       datum: json['datum'] as String?,
       sati: _toDouble(json['sati']),
       uloga: json['uloga'] as String? ?? '',
@@ -134,6 +140,29 @@ class WorkOrderVehicle {
   }
 }
 
+class MachineSummaryEntry {
+  const MachineSummaryEntry({
+    this.datum,
+    required this.voziloId,
+    required this.voziloLabel,
+    required this.hours,
+  });
+
+  final String? datum;
+  final int voziloId;
+  final String voziloLabel;
+  final double hours;
+
+  factory MachineSummaryEntry.fromJson(Map<String, dynamic> json) {
+    return MachineSummaryEntry(
+      datum: json['datum'] as String?,
+      voziloId: json['vozilo_id'] as int,
+      voziloLabel: json['vozilo_label'] as String? ?? '',
+      hours: _toDouble(json['hours']),
+    );
+  }
+}
+
 class WorkOrder {
   const WorkOrder({
     required this.id,
@@ -141,6 +170,7 @@ class WorkOrder {
     required this.title,
     required this.status,
     required this.statusDisplay,
+    this.projectId,
     this.projectName = '',
     this.clientName = '',
     this.description = '',
@@ -152,6 +182,7 @@ class WorkOrder {
     this.workItems = const [],
     this.assignments = const [],
     this.vehicles = const [],
+    this.machineSummary = const [],
   });
 
   final int id;
@@ -159,6 +190,7 @@ class WorkOrder {
   final String title;
   final String status;
   final String statusDisplay;
+  final int? projectId;
   final String projectName;
   final String clientName;
   final String description;
@@ -170,6 +202,7 @@ class WorkOrder {
   final List<WorkItem> workItems;
   final List<WorkOrderAssignment> assignments;
   final List<WorkOrderVehicle> vehicles;
+  final List<MachineSummaryEntry> machineSummary;
 
   bool get canStart => status == 'approved';
   bool get canComplete => status == 'in_progress';
@@ -183,6 +216,7 @@ class WorkOrder {
       title: json['title'] as String? ?? '',
       status: json['status'] as String? ?? '',
       statusDisplay: json['status_display'] as String? ?? '',
+      projectId: (json['project'] as num?)?.toInt(),
       projectName: json['project_name'] as String? ?? '',
       clientName: json['client_name'] as String? ?? '',
       description: json['description'] as String? ?? '',
@@ -201,6 +235,10 @@ class WorkOrder {
           const [],
       vehicles: (json['vehicles'] as List?)
               ?.map((e) => WorkOrderVehicle.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      machineSummary: (json['machine_summary'] as List?)
+              ?.map((e) => MachineSummaryEntry.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
     );

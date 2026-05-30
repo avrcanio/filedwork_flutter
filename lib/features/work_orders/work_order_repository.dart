@@ -1,7 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http_parser/http_parser.dart';
 
 import '../../config/api_config.dart';
 import '../../core/network/api_client.dart';
+import '../executions/execution_models.dart';
+import '../project/selected_project_controller.dart';
 import 'work_order_models.dart';
 
 /// Globalni broj radnih naloga po statusu (za badge na filterima).
@@ -31,10 +35,15 @@ class WorkOrderRepository {
 
   final ApiClient _client;
 
-  Future<List<WorkOrder>> fetchList({String? status, String? search}) async {
+  Future<List<WorkOrder>> fetchList({
+    required int projectId,
+    String? status,
+    String? search,
+  }) async {
     final res = await _client.dio.get<dynamic>(
       '${ApiConfig.fieldworkPrefix}/work-orders/',
       queryParameters: {
+        'project': projectId,
         if (status != null && status.isNotEmpty) 'status': status,
         if (search != null && search.isNotEmpty) 'search': search,
         'ordering': '-created_at',
@@ -47,9 +56,10 @@ class WorkOrderRepository {
         .toList();
   }
 
-  Future<WorkOrderStatusCounts> fetchStatusCounts() async {
+  Future<WorkOrderStatusCounts> fetchStatusCounts({required int projectId}) async {
     final res = await _client.dio.get<Map<String, dynamic>>(
       '${ApiConfig.fieldworkPrefix}/work-orders/status-counts/',
+      queryParameters: {'project': projectId},
     );
     return WorkOrderStatusCounts.fromJson(res.data!);
   }
@@ -69,6 +79,40 @@ class WorkOrderRepository {
       '${ApiConfig.fieldworkPrefix}/work-orders/$id/$action/',
     );
     return res.data?['status'] as String? ?? '';
+  }
+
+  Future<ExecutionPhoto> uploadWorkOrderPhoto({
+    required int workOrderId,
+    required String filePath,
+    int? workItemId,
+    String? caption,
+    String? takenAt,
+  }) async {
+    final fileName = filePath.split(RegExp(r'[\\/]')).last;
+    final ext =
+        fileName.contains('.') ? fileName.split('.').last.toLowerCase() : 'jpg';
+    final subtype = switch (ext) {
+      'png' => 'png',
+      'webp' => 'webp',
+      _ => 'jpeg',
+    };
+
+    final form = FormData.fromMap({
+      'image': await MultipartFile.fromFile(
+        filePath,
+        filename: fileName,
+        contentType: MediaType('image', subtype),
+      ),
+      if (workItemId != null) 'work_item': workItemId,
+      if (caption != null && caption.isNotEmpty) 'caption': caption,
+      if (takenAt != null && takenAt.isNotEmpty) 'taken_at': takenAt,
+    });
+
+    final res = await _client.dio.post<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-orders/$workOrderId/photos/',
+      data: form,
+    );
+    return ExecutionPhoto.fromJson(res.data!);
   }
 
   Future<List<WorkerLookup>> fetchWorkers({String? search}) async {
@@ -102,6 +146,7 @@ class WorkOrderRepository {
     required int zaposlenikId,
     required String datum,
     required double sati,
+    int? voziloId,
     String uloga = '',
     String napomena = '',
   }) async {
@@ -112,6 +157,7 @@ class WorkOrderRepository {
         'zaposlenik': zaposlenikId,
         'datum': datum,
         'sati': sati.toStringAsFixed(2),
+        if (voziloId != null) 'vozilo': voziloId,
         if (uloga.isNotEmpty) 'uloga': uloga,
         if (napomena.isNotEmpty) 'napomena': napomena,
       },
@@ -123,12 +169,19 @@ class WorkOrderRepository {
     required int id,
     String? datum,
     double? sati,
+    int? voziloId,
+    bool clearVozilo = false,
     String? uloga,
     String? napomena,
   }) async {
     final data = <String, dynamic>{};
     if (datum != null) data['datum'] = datum;
     if (sati != null) data['sati'] = sati.toStringAsFixed(2);
+    if (clearVozilo) {
+      data['vozilo'] = null;
+    } else if (voziloId != null) {
+      data['vozilo'] = voziloId;
+    }
     if (uloga != null) data['uloga'] = uloga;
     if (napomena != null) data['napomena'] = napomena;
 
@@ -183,16 +236,25 @@ class WorkOrderRepository {
     required int zaposlenikId,
     required String datum,
     required double sati,
+    int? voziloId,
+    bool clearVozilo = false,
     WorkOrderAssignment? existing,
   }) async {
     if (existing != null) {
-      return updateAssignment(id: existing.id, datum: datum, sati: sati);
+      return updateAssignment(
+        id: existing.id,
+        datum: datum,
+        sati: sati,
+        voziloId: voziloId,
+        clearVozilo: clearVozilo,
+      );
     }
     return createAssignment(
       workOrderId: workOrderId,
       zaposlenikId: zaposlenikId,
       datum: datum,
       sati: sati,
+      voziloId: voziloId,
     );
   }
 }
@@ -206,14 +268,22 @@ final workOrderStatusFilterProvider = StateProvider<String?>((ref) => null);
 
 final workOrderListProvider =
     FutureProvider.autoDispose<List<WorkOrder>>((ref) async {
+  final projectId = ref.watch(selectedProjectIdProvider);
+  if (projectId == null) return const [];
   final repo = ref.watch(workOrderRepositoryProvider);
   final status = ref.watch(workOrderStatusFilterProvider);
-  return repo.fetchList(status: status);
+  return repo.fetchList(projectId: projectId, status: status);
 });
 
 final workOrderStatusCountsProvider =
     FutureProvider.autoDispose<WorkOrderStatusCounts>((ref) async {
-  return ref.watch(workOrderRepositoryProvider).fetchStatusCounts();
+  final projectId = ref.watch(selectedProjectIdProvider);
+  if (projectId == null) {
+    return const WorkOrderStatusCounts(total: 0, byStatus: {});
+  }
+  return ref
+      .watch(workOrderRepositoryProvider)
+      .fetchStatusCounts(projectId: projectId);
 });
 
 final workOrderDetailProvider =

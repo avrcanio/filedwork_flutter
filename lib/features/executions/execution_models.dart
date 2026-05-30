@@ -9,20 +9,37 @@ class ExecutionPhoto {
     required this.id,
     required this.url,
     this.caption = '',
+    this.phase = 'after',
     this.uploadedAt,
+    this.source = 'execution',
   });
 
   final int id;
   final String url;
   final String caption;
+  final String phase;
   final String? uploadedAt;
+  final String source;
+
+  String get phaseLabel {
+    switch (phase) {
+      case 'before':
+        return 'Prije';
+      case 'after':
+        return 'Poslije';
+      default:
+        return phase;
+    }
+  }
 
   factory ExecutionPhoto.fromJson(Map<String, dynamic> json) {
     return ExecutionPhoto(
-      id: json['id'] as int,
+      id: json['id'] as int? ?? 0,
       url: json['url'] as String? ?? '',
       caption: json['caption'] as String? ?? '',
+      phase: json['phase'] as String? ?? 'after',
       uploadedAt: json['uploaded_at'] as String?,
+      source: json['source'] as String? ?? 'execution',
     );
   }
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import 'package:image_picker/image_picker.dart';
 import '../../core/network/api_client.dart';
+import '../../shared/utils/app_dates.dart';
 import '../../shared/widgets/async_value_view.dart';
 import '../../shared/widgets/progress_bar.dart';
 import '../auth/auth_controller.dart';
@@ -27,7 +27,9 @@ class WorkOrderDetailScreen extends ConsumerStatefulWidget {
 
 class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
   final ScrollController _scrollController = ScrollController();
+  final ImagePicker _imagePicker = ImagePicker();
   bool _fabCollapsed = false;
+  bool _uploadingPhoto = false;
 
   @override
   void initState() {
@@ -80,7 +82,38 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
     ref.invalidate(workOrderDetailProvider(workOrderId));
   }
 
-  String _todayIso() => DateFormat('yyyy-MM-dd').format(DateTime.now());
+  Future<void> _uploadWorkOrderPhoto(BuildContext context, WorkOrder order) async {
+    if (_uploadingPhoto) return;
+    try {
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        imageQuality: 85,
+      );
+      if (file == null || !context.mounted) return;
+      setState(() => _uploadingPhoto = true);
+      await ref.read(workOrderRepositoryProvider).uploadWorkOrderPhoto(
+            workOrderId: order.id,
+            filePath: file.path,
+            takenAt: _todayIso(),
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fotografija spremljena.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ApiClient.describeError(error))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
+    }
+  }
+
+  String _todayIso() => toApiDate(DateTime.now());
 
   WorkOrderAssignment? _findOwnAssignmentToday(
     WorkOrder order,
@@ -102,16 +135,18 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
     final fieldwork =
         ref.watch(authControllerProvider).user?.fieldwork ?? FieldworkCapabilities.empty;
 
-    void onQuickLog(WorkOrder order) async {
-      final ownId = fieldwork.ownZaposlenikId!;
-      final existing = _findOwnAssignmentToday(order, fieldwork);
-      final changed = await showQuickLogSheet(
+    void onResourceLog(WorkOrder order) async {
+      final existing = fieldwork.ownZaposlenikId != null
+          ? _findOwnAssignmentToday(order, fieldwork)
+          : null;
+      final changed = await showUnifiedHoursSheet(
         context,
         ref,
         workOrderId: workOrderId,
-        zaposlenikId: ownId,
-        zaposlenikName: fieldwork.ownZaposlenikName ?? 'Ja',
+        fieldwork: fieldwork,
         existing: existing,
+        defaultZaposlenikId: fieldwork.ownZaposlenikId,
+        defaultZaposlenikName: fieldwork.ownZaposlenikName,
       );
       if (changed == true) await _refreshDetail(ref);
     }
@@ -140,23 +175,22 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
       floatingActionButton: detail.maybeWhen(
         data: (order) {
           final showFab = order.status == 'in_progress' &&
-              fieldwork.canEditHours &&
-              fieldwork.ownZaposlenikId != null;
+              fieldwork.canShowResourceLogFab;
           if (!showFab) return null;
           return AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
             child: _fabCollapsed
                 ? FloatingActionButton(
                     key: const ValueKey('fab_collapsed'),
-                    tooltip: 'Unesi moje sate danas',
-                    onPressed: () => onQuickLog(order),
+                    tooltip: 'Unos rada',
+                    onPressed: () => onResourceLog(order),
                     child: const Icon(Icons.schedule),
                   )
                 : FloatingActionButton.extended(
                     key: const ValueKey('fab_extended'),
-                    onPressed: () => onQuickLog(order),
+                    onPressed: () => onResourceLog(order),
                     icon: const Icon(Icons.schedule),
-                    label: const Text('Unesi moje sate danas'),
+                    label: const Text('Unos rada'),
                   ),
           );
         },
@@ -173,6 +207,22 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
             children: [
               _Header(order: order),
               const SizedBox(height: 16),
+              if (order.status == 'draft' || order.status == 'approved') ...[
+                OutlinedButton.icon(
+                  onPressed: _uploadingPhoto
+                      ? null
+                      : () => _uploadWorkOrderPhoto(context, order),
+                  icon: _uploadingPhoto
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_a_photo_outlined),
+                  label: const Text('Dodaj fotografiju'),
+                ),
+                const SizedBox(height: 16),
+              ],
               _ActionButtons(
                 order: order,
                 onStart: () => _runAction(
@@ -199,10 +249,15 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
                     workOrderId: workOrderId,
                     assignment: assignment,
                     editable: editable,
+                    fieldwork: fieldwork,
                   );
                   if (changed == true) await _refreshDetail(ref);
                 },
               ),
+              if (order.machineSummary.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _MachineSummarySection(summary: order.machineSummary),
+              ],
               const SizedBox(height: 16),
               _VehiclesSection(
                 order: order,
@@ -239,7 +294,10 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
                   onTap: () async {
                     final changed = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(
-                        builder: (_) => ConfirmExecutionScreen(item: item),
+                        builder: (_) => ConfirmExecutionScreen(
+                          item: item,
+                          workOrderStatus: order.status,
+                        ),
                       ),
                     );
                     if (changed == true) {
@@ -298,7 +356,7 @@ class _Header extends StatelessWidget {
             if (order.scheduledDate != null)
               _InfoRow(
                 icon: Icons.event_outlined,
-                text: 'Planirano: ${order.scheduledDate}',
+                text: 'Planirano: ${formatDateForDisplay(order.scheduledDate)}',
               ),
             if (order.description.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -419,9 +477,8 @@ List<MapEntry<String?, List<WorkOrderVehicle>>> _groupVehiclesByDate(
 
 String _dateGroupLabel(String? isoDate) {
   if (isoDate == null || isoDate.isEmpty) return 'Bez datuma';
-  final parsed = DateTime.tryParse(isoDate);
-  if (parsed == null) return isoDate;
-  return DateFormat('dd.MM.yyyy.').format(parsed);
+  final display = formatDateForDisplay(isoDate);
+  return display.isEmpty ? isoDate : display;
 }
 
 class _AssignmentsSection extends StatelessWidget {
@@ -486,6 +543,7 @@ class _AssignmentsSection extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (a.pozicijaName.isNotEmpty) Text(a.pozicijaName),
+                      if (a.voziloLabel.isNotEmpty) Text('Stroj: ${a.voziloLabel}'),
                       if (a.uloga.isNotEmpty) Text(a.uloga),
                       Text(_formatHours(a.sati)),
                     ],
@@ -513,6 +571,63 @@ class _AssignmentsSection extends StatelessWidget {
   }
 }
 
+class _MachineSummarySection extends StatelessWidget {
+  const _MachineSummarySection({required this.summary});
+
+  final List<MachineSummaryEntry> summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = <String?, List<MachineSummaryEntry>>{};
+    for (final entry in summary) {
+      groups.putIfAbsent(entry.datum, () => []).add(entry);
+    }
+    final sortedKeys = groups.keys.toList()
+      ..sort((a, b) {
+        if (a == null) return 1;
+        if (b == null) return -1;
+        return b.compareTo(a);
+      });
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.precision_manufacturing_outlined, size: 20),
+            const SizedBox(width: 6),
+            Text(
+              'Sažetak strojeva',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...sortedKeys.expand((key) sync* {
+          yield Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 4),
+            child: Text(
+              _dateGroupLabel(key),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+            ),
+          );
+          for (final entry in groups[key]!) {
+            yield Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(entry.voziloLabel),
+                trailing: Text(_formatHours(entry.hours)),
+              ),
+            );
+          }
+        }),
+      ],
+    );
+  }
+}
+
 class _VehiclesSection extends StatelessWidget {
   const _VehiclesSection({
     required this.order,
@@ -530,8 +645,10 @@ class _VehiclesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final totalHours = _sumHours(order.vehicles.map((v) => v.sati));
     final groups = _groupVehiclesByDate(order.vehicles);
-    final canEditOrder =
-        order.status == 'in_progress' && fieldwork.canAddVehicles;
+    final canEditOrder = order.status == 'in_progress' &&
+        fieldwork.canAddVehicles &&
+        (fieldwork.hasManagedVehicles ||
+            (fieldwork.canEditHours && fieldwork.ownZaposlenikId == null));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -542,13 +659,13 @@ class _VehiclesSection extends StatelessWidget {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                'Vozila (${order.vehicles.length})',
+                'Strojevi bez vozača (${order.vehicles.length})',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
             if (canEditOrder)
               IconButton(
-                tooltip: 'Dodaj vozilo',
+                tooltip: 'Dodaj stroj',
                 icon: const Icon(Icons.add_circle_outline),
                 onPressed: onAdd,
               ),
@@ -557,7 +674,7 @@ class _VehiclesSection extends StatelessWidget {
         const SizedBox(height: 8),
         if (order.vehicles.isEmpty)
           Text(
-            'Nema dodijeljenih vozila.',
+            'Nema strojeva bez vozača.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.outline,
                 ),

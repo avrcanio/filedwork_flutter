@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../shared/utils/app_dates.dart';
 import '../../shared/widgets/async_value_view.dart';
+import '../project/project_repository.dart';
+import '../project/project_selector_bar.dart';
+import '../project/selected_project_controller.dart';
 import 'work_order_detail_screen.dart';
 import 'work_order_models.dart';
 import 'work_order_repository.dart';
@@ -12,15 +16,29 @@ class WorkOrderListScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final projectId = ref.watch(selectedProjectIdProvider);
     final orders = ref.watch(workOrderListProvider);
     final filter = ref.watch(workOrderStatusFilterProvider);
 
+    if (projectId == null) {
+      return const Column(
+        children: [
+          ProjectSelectorBar(),
+          Expanded(
+            child: Center(child: Text('Nema aktivnih projekata.')),
+          ),
+        ],
+      );
+    }
+
     return Column(
       children: [
+        const ProjectSelectorBar(),
         _StatusFilterBar(selected: filter),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () {
+              ref.invalidate(activeProjectsProvider);
               ref.invalidate(workOrderStatusCountsProvider);
               return ref.refresh(workOrderListProvider.future);
             },
@@ -39,8 +57,10 @@ class WorkOrderListScreen extends ConsumerWidget {
                 return ListView.builder(
                   padding: const EdgeInsets.all(12),
                   itemCount: list.length,
-                  itemBuilder: (context, index) =>
-                      _WorkOrderCard(order: list[index]),
+                  itemBuilder: (context, index) => _WorkOrderCard(
+                    order: list[index],
+                    showProjectName: false,
+                  ),
                 );
               },
             ),
@@ -93,9 +113,13 @@ class _StatusFilterBar extends ConsumerWidget {
 }
 
 class _WorkOrderCard extends StatelessWidget {
-  const _WorkOrderCard({required this.order});
+  const _WorkOrderCard({
+    required this.order,
+    this.showProjectName = true,
+  });
 
   final WorkOrder order;
+  final bool showProjectName;
 
   @override
   Widget build(BuildContext context) {
@@ -112,9 +136,14 @@ class _WorkOrderCard extends StatelessWidget {
           children: [
             const SizedBox(height: 2),
             Text(order.title),
-            if (order.projectName.isNotEmpty)
+            if (showProjectName && order.projectName.isNotEmpty)
               Text(
                 order.projectName,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            if (!showProjectName && order.scheduledDate != null)
+              Text(
+                formatDateForDisplay(order.scheduledDate),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             const SizedBox(height: 8),

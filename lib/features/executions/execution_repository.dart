@@ -31,11 +31,20 @@ class ExecutionRepository {
     return WorkExecution.fromJson(res.data!);
   }
 
+  /// Otvara planned izvršenje (qty=0) za upload fotografija prije rada.
+  Future<WorkExecution> openExecution(int workItemId) async {
+    final res = await _client.dio.post<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-items/$workItemId/open-execution/',
+    );
+    return WorkExecution.fromJson(res.data!);
+  }
+
   /// Upload jedne fotografije (multipart). Vraća se metapodatak fotografije.
   Future<ExecutionPhoto> uploadPhoto({
     required int executionId,
     required String filePath,
     String? caption,
+    String? phase,
   }) async {
     final fileName = filePath.split(RegExp(r'[\\/]')).last;
     final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : 'jpg';
@@ -52,6 +61,7 @@ class ExecutionRepository {
         contentType: MediaType('image', subtype),
       ),
       if (caption != null && caption.isNotEmpty) 'caption': caption,
+      if (phase != null && phase.isNotEmpty) 'phase': phase,
     });
 
     final res = await _client.dio.post<Map<String, dynamic>>(
