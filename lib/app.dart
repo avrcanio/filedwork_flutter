@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/app_update/app_update_listener.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/auth/auth_controller.dart';
@@ -22,6 +23,8 @@ class FieldworkApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: themeMode,
+      builder: (context, child) =>
+          AppUpdateListener(child: child ?? const SizedBox.shrink()),
       home: switch (authStatus) {
         AuthStatus.unknown => const _SplashScreen(),
         AuthStatus.authenticated => const HomeShell(),
