@@ -2,7 +2,7 @@ name: fieldwork_flutter
 description: "Dalekopro terenska aplikacija za radne naloge."
 publish_to: 'none'
 
-version: 1.0.8+9
+version: 1.0.9+10
 
 environment:
   sdk: ^3.11.5

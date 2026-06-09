@@ -599,7 +599,7 @@ class _LaborHoursSection extends StatelessWidget {
                       row: rows[i],
                       selectableRoster: selectableRoster,
                       managerMode: managerMode,
-                      canRemove: managerMode && rows.length > 1,
+                      canRemove: managerMode,
                       onChanged: () {
                         onRowChanged();
                         state.didChange(null);
