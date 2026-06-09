@@ -44,11 +44,32 @@ class ExecutionPhoto {
   }
 }
 
+class ExecutionLaborLine {
+  const ExecutionLaborLine({
+    required this.zaposlenikId,
+    this.zaposlenikName = '',
+    this.laborHours = 0,
+  });
+
+  final int zaposlenikId;
+  final String zaposlenikName;
+  final double laborHours;
+
+  factory ExecutionLaborLine.fromJson(Map<String, dynamic> json) {
+    return ExecutionLaborLine(
+      zaposlenikId: (json['zaposlenik'] as num?)?.toInt() ?? 0,
+      zaposlenikName: json['zaposlenik_name'] as String? ?? '',
+      laborHours: _toDouble(json['labor_hours']),
+    );
+  }
+}
+
 class WorkExecution {
   const WorkExecution({
     required this.id,
     required this.workItem,
     required this.quantityExecuted,
+    this.laborHours = 0,
     required this.status,
     this.statusDisplay = '',
     this.workItemDescription = '',
@@ -60,11 +81,13 @@ class WorkExecution {
     this.roadSectionName = '',
     this.roadSideDisplay = '',
     this.photoUrls = const [],
+    this.laborLines = const [],
   });
 
   final int id;
   final int workItem;
   final double quantityExecuted;
+  final double laborHours;
   final String status;
   final String statusDisplay;
   final String workItemDescription;
@@ -76,6 +99,7 @@ class WorkExecution {
   final String roadSectionName;
   final String roadSideDisplay;
   final List<ExecutionPhoto> photoUrls;
+  final List<ExecutionLaborLine> laborLines;
 
   String get locationLine {
     final parts = <String>[
@@ -99,6 +123,7 @@ class WorkExecution {
       id: json['id'] as int,
       workItem: json['work_item'] as int? ?? 0,
       quantityExecuted: _toDouble(json['quantity_executed']),
+      laborHours: _toDouble(json['labor_hours']),
       status: json['status'] as String? ?? '',
       statusDisplay: json['status_display'] as String? ?? '',
       workItemDescription: json['work_item_description'] as String? ?? '',
@@ -111,6 +136,10 @@ class WorkExecution {
       roadSideDisplay: json['road_side_display'] as String? ?? '',
       photoUrls: (json['photo_urls'] as List?)
               ?.map((e) => ExecutionPhoto.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      laborLines: (json['labor_lines'] as List?)
+              ?.map((e) => ExecutionLaborLine.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
     );

@@ -71,6 +71,17 @@ class WorkOrderRepository {
     return WorkOrder.fromJson(res.data!);
   }
 
+  Future<EmployeeLaborDetail> fetchEmployeeLaborDetail({
+    required int workOrderId,
+    required int zaposlenikId,
+  }) async {
+    final res = await _client.dio.get<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-orders/$workOrderId/employee-labor-detail/',
+      queryParameters: {'zaposlenik': zaposlenikId},
+    );
+    return EmployeeLaborDetail.fromJson(res.data!);
+  }
+
   Future<String> startOrder(int id) => _statusAction(id, 'start');
   Future<String> completeOrder(int id) => _statusAction(id, 'complete');
 
@@ -190,6 +201,12 @@ class WorkOrderRepository {
       data: data,
     );
     return WorkOrderAssignment.fromJson(res.data!);
+  }
+
+  Future<void> deleteAssignment({required int id}) async {
+    await _client.dio.delete<void>(
+      '${ApiConfig.fieldworkPrefix}/work-assignments/$id/',
+    );
   }
 
   Future<WorkOrderVehicle> createVehicle({

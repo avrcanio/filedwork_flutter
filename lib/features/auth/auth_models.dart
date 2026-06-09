@@ -44,6 +44,7 @@ class FieldworkCapabilities {
   /// Staff ima praznu listu managed ali `canEditHours`; obični korisnik mora biti u listi.
   bool canManageZaposlenik(int zaposlenikId) {
     if (!canEditHours) return false;
+    if (ownZaposlenikId == zaposlenikId) return true;
     if (managedZaposlenikIds.isEmpty && ownZaposlenikId == null) return true;
     return managedZaposlenikIds.contains(zaposlenikId);
   }

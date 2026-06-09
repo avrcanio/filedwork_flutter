@@ -13,6 +13,7 @@ class WorkItem {
     required this.remainingQuantity,
     required this.isFullyExecuted,
     required this.progressPercent,
+    this.totalLaborHours = 0,
     this.operationTypeId,
     this.operationTypeName = '',
     this.operationTypeUnit = '',
@@ -29,6 +30,7 @@ class WorkItem {
   final double remainingQuantity;
   final bool isFullyExecuted;
   final double progressPercent;
+  final double totalLaborHours;
   final int? operationTypeId;
   final String operationTypeName;
   final String operationTypeUnit;
@@ -70,6 +72,7 @@ class WorkItem {
       remainingQuantity: _toDouble(json['remaining_quantity']),
       isFullyExecuted: json['is_fully_executed'] as bool? ?? false,
       progressPercent: _toDouble(json['execution_progress_percent']),
+      totalLaborHours: _toDouble(json['total_labor_hours']),
       operationTypeId: json['operation_type'] as int?,
       operationTypeName: json['operation_type_name'] as String? ?? '',
       operationTypeUnit: json['operation_type_unit'] as String? ?? '',

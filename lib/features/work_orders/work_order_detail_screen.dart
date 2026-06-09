@@ -5,12 +5,10 @@ import '../../core/network/api_client.dart';
 import '../../shared/utils/app_dates.dart';
 import '../../shared/widgets/async_value_view.dart';
 import '../../shared/widgets/progress_bar.dart';
-import '../auth/auth_controller.dart';
-import '../auth/auth_models.dart';
 import '../executions/confirm_execution_screen.dart';
 import '../work_items/work_item_map_screen.dart';
 import '../work_items/work_item_models.dart';
-import 'resource_hours_sheet.dart';
+import 'employee_labor_detail_sheet.dart';
 import 'work_order_models.dart';
 import 'work_order_repository.dart';
 import 'work_order_status.dart';
@@ -26,30 +24,8 @@ class WorkOrderDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
-  final ScrollController _scrollController = ScrollController();
   final ImagePicker _imagePicker = ImagePicker();
-  bool _fabCollapsed = false;
   bool _uploadingPhoto = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-  }
-
-  @override
-  void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    final collapsed = _scrollController.offset > 24;
-    if (collapsed != _fabCollapsed) {
-      setState(() => _fabCollapsed = collapsed);
-    }
-  }
 
   int get workOrderId => widget.workOrderId;
 
@@ -76,10 +52,6 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
         );
       }
     }
-  }
-
-  Future<void> _refreshDetail(WidgetRef ref) async {
-    ref.invalidate(workOrderDetailProvider(workOrderId));
   }
 
   Future<void> _uploadWorkOrderPhoto(BuildContext context, WorkOrder order) async {
@@ -115,41 +87,10 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
 
   String _todayIso() => toApiDate(DateTime.now());
 
-  WorkOrderAssignment? _findOwnAssignmentToday(
-    WorkOrder order,
-    FieldworkCapabilities fieldwork,
-  ) {
-    final ownId = fieldwork.ownZaposlenikId;
-    if (ownId == null) return null;
-    final today = _todayIso();
-    for (final a in order.assignments) {
-      if (a.zaposlenikId == ownId && a.datum == today) return a;
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final detail = ref.watch(workOrderDetailProvider(workOrderId));
     final repo = ref.watch(workOrderRepositoryProvider);
-    final fieldwork =
-        ref.watch(authControllerProvider).user?.fieldwork ?? FieldworkCapabilities.empty;
-
-    void onResourceLog(WorkOrder order) async {
-      final existing = fieldwork.ownZaposlenikId != null
-          ? _findOwnAssignmentToday(order, fieldwork)
-          : null;
-      final changed = await showUnifiedHoursSheet(
-        context,
-        ref,
-        workOrderId: workOrderId,
-        fieldwork: fieldwork,
-        existing: existing,
-        defaultZaposlenikId: fieldwork.ownZaposlenikId,
-        defaultZaposlenikName: fieldwork.ownZaposlenikName,
-      );
-      if (changed == true) await _refreshDetail(ref);
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -172,37 +113,14 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
           ),
         ],
       ),
-      floatingActionButton: detail.maybeWhen(
-        data: (order) {
-          final showFab = order.status == 'in_progress' &&
-              fieldwork.canShowResourceLogFab;
-          if (!showFab) return null;
-          return AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: _fabCollapsed
-                ? FloatingActionButton(
-                    key: const ValueKey('fab_collapsed'),
-                    tooltip: 'Unos rada',
-                    onPressed: () => onResourceLog(order),
-                    child: const Icon(Icons.schedule),
-                  )
-                : FloatingActionButton.extended(
-                    key: const ValueKey('fab_extended'),
-                    onPressed: () => onResourceLog(order),
-                    icon: const Icon(Icons.schedule),
-                    label: const Text('Unos rada'),
-                  ),
-          );
-        },
-        orElse: () => null,
-      ),
       body: RefreshIndicator(
         onRefresh: () => ref.refresh(workOrderDetailProvider(workOrderId).future),
         child: AsyncValueView<WorkOrder>(
           value: detail,
           onRetry: () => ref.invalidate(workOrderDetailProvider(workOrderId)),
-          data: (order) => ListView(
-            controller: _scrollController,
+          data: (order) {
+            final roster = uniqueRosterFromAssignments(order.assignments);
+            return ListView(
             padding: const EdgeInsets.all(16),
             children: [
               _Header(order: order),
@@ -240,63 +158,44 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
               ),
               const SizedBox(height: 20),
               _AssignmentsSection(
+                workOrderId: order.id,
                 order: order,
-                fieldwork: fieldwork,
-                onEdit: (assignment, editable) async {
-                  final changed = await showAssignmentHoursSheet(
-                    context,
-                    ref,
-                    workOrderId: workOrderId,
-                    assignment: assignment,
-                    editable: editable,
-                    fieldwork: fieldwork,
-                  );
-                  if (changed == true) await _refreshDetail(ref);
-                },
+                roster: roster,
               ),
               if (order.machineSummary.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 _MachineSummarySection(summary: order.machineSummary),
               ],
               const SizedBox(height: 16),
-              _VehiclesSection(
-                order: order,
-                fieldwork: fieldwork,
-                onEdit: (vehicle, editable) async {
-                  final changed = await showVehicleHoursSheet(
-                    context,
-                    ref,
-                    workOrderId: workOrderId,
-                    vehicle: vehicle,
-                    editable: editable,
-                  );
-                  if (changed == true) await _refreshDetail(ref);
-                },
-                onAdd: () async {
-                  final changed = await showAddVehicleSheet(
-                    context,
-                    ref,
-                    workOrderId: workOrderId,
-                  );
-                  if (changed == true) await _refreshDetail(ref);
-                },
-              ),
+              _VehiclesSection(order: order),
               const SizedBox(height: 20),
               Text(
                 'Stavke (${order.workItems.length})',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
+              if (order.totalItemLaborHours > 0) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Ukupno sati po stavkama: '
+                  '${order.totalItemLaborHours.toStringAsFixed(1)} h',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
               const SizedBox(height: 8),
               ...order.workItems.map(
                 (item) => _WorkItemTile(
                   item: item,
-                  enabled: order.status == 'in_progress',
+                  enabled: order.status == 'in_progress' ||
+                      order.status == 'completed',
                   onTap: () async {
                     final changed = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(
                         builder: (_) => ConfirmExecutionScreen(
                           item: item,
                           workOrderStatus: order.status,
+                          roster: roster,
                         ),
                       ),
                     );
@@ -306,9 +205,10 @@ class _WorkOrderDetailScreenState extends ConsumerState<WorkOrderDetailScreen> {
                   },
                 ),
               ),
-              const SizedBox(height: 72),
+              const SizedBox(height: 24),
             ],
-          ),
+          );
+          },
         ),
       ),
     );
@@ -441,63 +341,33 @@ String _formatHours(double value) => '${value.toStringAsFixed(1)} h';
 double _sumHours(Iterable<double> values) =>
     values.fold(0.0, (sum, v) => sum + v);
 
-List<MapEntry<String?, List<WorkOrderAssignment>>> _groupByDate(
-  List<WorkOrderAssignment> items,
-) {
-  final groups = <String?, List<WorkOrderAssignment>>{};
-  for (final item in items) {
-    final key = item.datum;
-    groups.putIfAbsent(key, () => []).add(item);
-  }
-  final entries = groups.entries.toList();
-  entries.sort((a, b) {
-    if (a.key == null) return 1;
-    if (b.key == null) return -1;
-    return b.key!.compareTo(a.key!);
-  });
-  return entries;
-}
-
-List<MapEntry<String?, List<WorkOrderVehicle>>> _groupVehiclesByDate(
-  List<WorkOrderVehicle> items,
-) {
-  final groups = <String?, List<WorkOrderVehicle>>{};
-  for (final item in items) {
-    final key = item.datum;
-    groups.putIfAbsent(key, () => []).add(item);
-  }
-  final entries = groups.entries.toList();
-  entries.sort((a, b) {
-    if (a.key == null) return 1;
-    if (b.key == null) return -1;
-    return b.key!.compareTo(a.key!);
-  });
-  return entries;
-}
-
 String _dateGroupLabel(String? isoDate) {
   if (isoDate == null || isoDate.isEmpty) return 'Bez datuma';
   final display = formatDateForDisplay(isoDate);
   return display.isEmpty ? isoDate : display;
 }
 
-class _AssignmentsSection extends StatelessWidget {
+class _AssignmentsSection extends ConsumerWidget {
   const _AssignmentsSection({
+    required this.workOrderId,
     required this.order,
-    required this.fieldwork,
-    required this.onEdit,
+    required this.roster,
   });
 
+  final int workOrderId;
   final WorkOrder order;
-  final FieldworkCapabilities fieldwork;
-  final void Function(WorkOrderAssignment assignment, bool editable) onEdit;
+  final List<WorkOrderRosterEntry> roster;
 
   @override
-  Widget build(BuildContext context) {
-    final totalHours = _sumHours(order.assignments.map((a) => a.sati));
-    final groups = _groupByDate(order.assignments);
-    final canEditOrder =
-        order.status == 'in_progress' && fieldwork.canEditHours;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hoursByWorker = {
+      for (final entry in order.employeeHoursSummary)
+        entry.zaposlenikId: entry.totalHours,
+    };
+    final totalHours = order.employeeHoursSummary.fold<double>(
+      0,
+      (sum, entry) => sum + entry.totalHours,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -507,56 +377,41 @@ class _AssignmentsSection extends StatelessWidget {
             const Icon(Icons.people_outline, size: 20),
             const SizedBox(width: 6),
             Text(
-              'Djelatnici (${order.assignments.length})',
+              'Djelatnici (${roster.length})',
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ],
         ),
         const SizedBox(height: 8),
-        if (order.assignments.isEmpty)
+        if (roster.isEmpty)
           Text(
-            'Nema dodijeljenih djelatnika.',
+            'Nema dodijeljenih djelatnika. Dodajte ih u web aplikaciji.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.outline,
                 ),
           )
         else
-          ...groups.expand((group) sync* {
-            yield Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 4),
-              child: Text(
-                _dateGroupLabel(group.key),
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-              ),
-            );
-            for (final a in group.value) {
-              final editable = canEditOrder &&
-                  a.zaposlenikId != null &&
-                  fieldwork.canManageZaposlenik(a.zaposlenikId!);
-              yield Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text(a.zaposlenikName),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (a.pozicijaName.isNotEmpty) Text(a.pozicijaName),
-                      if (a.voziloLabel.isNotEmpty) Text('Stroj: ${a.voziloLabel}'),
-                      if (a.uloga.isNotEmpty) Text(a.uloga),
-                      Text(_formatHours(a.sati)),
-                    ],
-                  ),
-                  trailing: editable
-                      ? const Icon(Icons.edit_outlined, size: 20)
-                      : null,
-                  onTap: () => onEdit(a, editable),
+          for (final worker in roster)
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(worker.name),
+                subtitle: worker.pozicijaName.isNotEmpty
+                    ? Text(worker.pozicijaName)
+                    : null,
+                trailing: Text(
+                  _formatHours(hoursByWorker[worker.id] ?? 0),
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-              );
-            }
-          }),
-        if (order.assignments.isNotEmpty)
+                onTap: () => showEmployeeLaborDetailSheet(
+                  context,
+                  ref,
+                  workOrderId: workOrderId,
+                  worker: worker,
+                ),
+              ),
+            ),
+        if (roster.isNotEmpty)
           Align(
             alignment: Alignment.centerRight,
             child: Text(
@@ -628,27 +483,45 @@ class _MachineSummarySection extends StatelessWidget {
   }
 }
 
-class _VehiclesSection extends StatelessWidget {
-  const _VehiclesSection({
-    required this.order,
-    required this.fieldwork,
-    required this.onEdit,
-    required this.onAdd,
+class _VehicleAggregate {
+  const _VehicleAggregate({
+    required this.label,
+    this.registracija = '',
+    this.hours = 0,
   });
 
+  final String label;
+  final String registracija;
+  final double hours;
+}
+
+List<_VehicleAggregate> _aggregateVehicles(List<WorkOrderVehicle> vehicles) {
+  final byKey = <String, _VehicleAggregate>{};
+  for (final vehicle in vehicles) {
+    final key = vehicle.voziloId?.toString() ?? vehicle.voziloLabel;
+    final existing = byKey[key];
+    byKey[key] = _VehicleAggregate(
+      label: vehicle.voziloLabel,
+      registracija: vehicle.registracija.isNotEmpty
+          ? vehicle.registracija
+          : (existing?.registracija ?? ''),
+      hours: (existing?.hours ?? 0) + vehicle.sati,
+    );
+  }
+  final result = byKey.values.toList()
+    ..sort((a, b) => a.label.compareTo(b.label));
+  return result;
+}
+
+class _VehiclesSection extends StatelessWidget {
+  const _VehiclesSection({required this.order});
+
   final WorkOrder order;
-  final FieldworkCapabilities fieldwork;
-  final void Function(WorkOrderVehicle vehicle, bool editable) onEdit;
-  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
-    final totalHours = _sumHours(order.vehicles.map((v) => v.sati));
-    final groups = _groupVehiclesByDate(order.vehicles);
-    final canEditOrder = order.status == 'in_progress' &&
-        fieldwork.canAddVehicles &&
-        (fieldwork.hasManagedVehicles ||
-            (fieldwork.canEditHours && fieldwork.ownZaposlenikId == null));
+    final aggregated = _aggregateVehicles(order.vehicles);
+    final totalHours = _sumHours(aggregated.map((v) => v.hours));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -657,22 +530,14 @@ class _VehiclesSection extends StatelessWidget {
           children: [
             const Icon(Icons.local_shipping_outlined, size: 20),
             const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                'Strojevi bez vozača (${order.vehicles.length})',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+            Text(
+              'Strojevi bez vozača (${aggregated.length})',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-            if (canEditOrder)
-              IconButton(
-                tooltip: 'Dodaj stroj',
-                icon: const Icon(Icons.add_circle_outline),
-                onPressed: onAdd,
-              ),
           ],
         ),
         const SizedBox(height: 8),
-        if (order.vehicles.isEmpty)
+        if (aggregated.isEmpty)
           Text(
             'Nema strojeva bez vozača.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -680,37 +545,21 @@ class _VehiclesSection extends StatelessWidget {
                 ),
           )
         else
-          ...groups.expand((group) sync* {
-            yield Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 4),
-              child: Text(
-                _dateGroupLabel(group.key),
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-              ),
-            );
-            for (final v in group.value) {
-              yield Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text(v.voziloLabel),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (v.registracija.isNotEmpty) Text(v.registracija),
-                      Text(_formatHours(v.sati)),
-                    ],
-                  ),
-                  trailing: canEditOrder
-                      ? const Icon(Icons.edit_outlined, size: 20)
-                      : null,
-                  onTap: canEditOrder ? () => onEdit(v, true) : null,
+          for (final vehicle in aggregated)
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(vehicle.label),
+                subtitle: vehicle.registracija.isNotEmpty
+                    ? Text(vehicle.registracija)
+                    : null,
+                trailing: Text(
+                  _formatHours(vehicle.hours),
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-              );
-            }
-          }),
-        if (order.vehicles.isNotEmpty)
+              ),
+            ),
+        if (aggregated.isNotEmpty)
           Align(
             alignment: Alignment.centerRight,
             child: Text(
@@ -740,6 +589,11 @@ class _WorkItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final unit = item.unit;
     final locationLine = item.locationWithRoadSide;
+    final qtyLine = '${item.executedQuantity.toStringAsFixed(0)} / '
+        '${item.quantity.toStringAsFixed(0)} $unit';
+    final hoursSuffix = item.totalLaborHours > 0
+        ? ' · ${item.totalLaborHours.toStringAsFixed(1)} h'
+        : '';
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -750,8 +604,7 @@ class _WorkItemTile extends StatelessWidget {
           children: [
             const SizedBox(height: 4),
             Text(
-              '${item.executedQuantity.toStringAsFixed(0)} / '
-              '${item.quantity.toStringAsFixed(0)} $unit',
+              '$qtyLine$hoursSuffix',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (locationLine.isNotEmpty)
@@ -762,9 +615,12 @@ class _WorkItemTile extends StatelessWidget {
           ],
         ),
         trailing: item.isFullyExecuted
-            ? const Icon(Icons.check_circle, color: Color(0xFF059669))
+            ? Icon(
+                enabled ? Icons.check_circle : Icons.check_circle_outlined,
+                color: enabled ? const Color(0xFF059669) : null,
+              )
             : Icon(enabled ? Icons.add_task : Icons.lock_outline),
-        onTap: enabled && !item.isFullyExecuted ? onTap : null,
+        onTap: enabled ? onTap : null,
       ),
     );
   }

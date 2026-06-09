@@ -163,6 +163,139 @@ class MachineSummaryEntry {
   }
 }
 
+class EmployeeHoursSummary {
+  const EmployeeHoursSummary({
+    required this.zaposlenikId,
+    required this.zaposlenikName,
+    this.pozicijaName = '',
+    this.totalHours = 0,
+  });
+
+  final int zaposlenikId;
+  final String zaposlenikName;
+  final String pozicijaName;
+  final double totalHours;
+
+  factory EmployeeHoursSummary.fromJson(Map<String, dynamic> json) {
+    return EmployeeHoursSummary(
+      zaposlenikId: json['zaposlenik_id'] as int? ?? 0,
+      zaposlenikName: json['zaposlenik_name'] as String? ?? '',
+      pozicijaName: json['pozicija_name'] as String? ?? '',
+      totalHours: _toDouble(json['total_hours']),
+    );
+  }
+}
+
+class EmployeeLaborDetailEntry {
+  const EmployeeLaborDetailEntry({
+    required this.executionDate,
+    required this.workItemId,
+    required this.operationName,
+    this.roadSectionName = '',
+    this.roadSideDisplay = '',
+    this.laborHours = 0,
+  });
+
+  final String executionDate;
+  final int workItemId;
+  final String operationName;
+  final String roadSectionName;
+  final String roadSideDisplay;
+  final double laborHours;
+
+  String get locationLine {
+    final parts = <String>[
+      if (roadSectionName.isNotEmpty) roadSectionName,
+      if (roadSideDisplay.isNotEmpty &&
+          roadSideDisplay != 'Nije primjenjivo')
+        roadSideDisplay,
+    ];
+    return parts.join(' · ');
+  }
+
+  factory EmployeeLaborDetailEntry.fromJson(Map<String, dynamic> json) {
+    return EmployeeLaborDetailEntry(
+      executionDate: json['execution_date'] as String? ?? '',
+      workItemId: json['work_item_id'] as int? ?? 0,
+      operationName: json['operation_name'] as String? ?? '',
+      roadSectionName: json['road_section_name'] as String? ?? '',
+      roadSideDisplay: json['road_side_display'] as String? ?? '',
+      laborHours: _toDouble(json['labor_hours']),
+    );
+  }
+}
+
+class EmployeeLaborDetail {
+  const EmployeeLaborDetail({
+    required this.zaposlenikId,
+    required this.zaposlenikName,
+    this.totalHours = 0,
+    this.entries = const [],
+  });
+
+  final int zaposlenikId;
+  final String zaposlenikName;
+  final double totalHours;
+  final List<EmployeeLaborDetailEntry> entries;
+
+  factory EmployeeLaborDetail.fromJson(Map<String, dynamic> json) {
+    return EmployeeLaborDetail(
+      zaposlenikId: json['zaposlenik_id'] as int? ?? 0,
+      zaposlenikName: json['zaposlenik_name'] as String? ?? '',
+      totalHours: _toDouble(json['total_hours']),
+      entries: (json['entries'] as List?)
+              ?.map(
+                (e) => EmployeeLaborDetailEntry.fromJson(
+                  e as Map<String, dynamic>,
+                ),
+              )
+              .toList() ??
+          const [],
+    );
+  }
+}
+
+class WorkOrderRosterEntry {
+  const WorkOrderRosterEntry({
+    required this.id,
+    required this.name,
+    this.pozicijaName = '',
+  });
+
+  final int id;
+  final String name;
+  final String pozicijaName;
+}
+
+/// Kratki prikaz imena za uske mobilne kontrole (npr. „M. Vukman”).
+String shortWorkerDisplayName(String fullName) {
+  final parts = fullName.trim().split(RegExp(r'\s+'));
+  if (parts.isEmpty) return fullName;
+  if (parts.length == 1) return parts.first;
+  final first = parts.first;
+  if (first.isEmpty) return parts.last;
+  return '${first[0]}. ${parts.last}';
+}
+
+List<WorkOrderRosterEntry> uniqueRosterFromAssignments(
+  List<WorkOrderAssignment> assignments,
+) {
+  final seen = <int>{};
+  final result = <WorkOrderRosterEntry>[];
+  for (final assignment in assignments) {
+    final id = assignment.zaposlenikId;
+    if (id == null || !seen.add(id)) continue;
+    result.add(
+      WorkOrderRosterEntry(
+        id: id,
+        name: assignment.zaposlenikName,
+        pozicijaName: assignment.pozicijaName,
+      ),
+    );
+  }
+  return result;
+}
+
 class WorkOrder {
   const WorkOrder({
     required this.id,
@@ -183,6 +316,8 @@ class WorkOrder {
     this.assignments = const [],
     this.vehicles = const [],
     this.machineSummary = const [],
+    this.totalItemLaborHours = 0,
+    this.employeeHoursSummary = const [],
   });
 
   final int id;
@@ -203,6 +338,8 @@ class WorkOrder {
   final List<WorkOrderAssignment> assignments;
   final List<WorkOrderVehicle> vehicles;
   final List<MachineSummaryEntry> machineSummary;
+  final double totalItemLaborHours;
+  final List<EmployeeHoursSummary> employeeHoursSummary;
 
   bool get canStart => status == 'approved';
   bool get canComplete => status == 'in_progress';
@@ -239,6 +376,12 @@ class WorkOrder {
           const [],
       machineSummary: (json['machine_summary'] as List?)
               ?.map((e) => MachineSummaryEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      totalItemLaborHours: _toDouble(json['total_item_labor_hours']),
+      employeeHoursSummary: (json['employee_hours_summary'] as List?)
+              ?.map((e) =>
+                  EmployeeHoursSummary.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
     );

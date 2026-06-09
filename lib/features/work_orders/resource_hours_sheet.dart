@@ -4,8 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/network/api_client.dart';
 import '../../shared/utils/app_dates.dart';
 import '../auth/auth_models.dart';
+import '../executions/execution_repository.dart';
+import '../work_items/work_item_models.dart';
 import 'work_order_models.dart';
 import 'work_order_repository.dart';
+
+Future<bool?> showWorkItemHoursSheet(
+  BuildContext context,
+  WidgetRef ref, {
+  required List<WorkItem> workItems,
+}) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => _WorkItemHoursSheet(workItems: workItems),
+  );
+}
 
 Future<bool?> showUnifiedHoursSheet(
   BuildContext context,
@@ -15,6 +29,7 @@ Future<bool?> showUnifiedHoursSheet(
   WorkOrderAssignment? existing,
   int? defaultZaposlenikId,
   String? defaultZaposlenikName,
+  DateTime? initialDate,
   bool editable = true,
 }) {
   return showModalBottomSheet<bool>(
@@ -26,6 +41,7 @@ Future<bool?> showUnifiedHoursSheet(
       assignment: existing,
       defaultZaposlenikId: defaultZaposlenikId,
       defaultZaposlenikName: defaultZaposlenikName,
+      initialDate: initialDate,
       editable: editable,
     ),
   );
@@ -38,6 +54,7 @@ Future<bool?> showAssignmentHoursSheet(
   required WorkOrderAssignment assignment,
   required FieldworkCapabilities fieldwork,
   required bool editable,
+  DateTime? initialDate,
 }) {
   return showUnifiedHoursSheet(
     context,
@@ -45,6 +62,7 @@ Future<bool?> showAssignmentHoursSheet(
     workOrderId: workOrderId,
     fieldwork: fieldwork,
     existing: assignment,
+    initialDate: initialDate,
     editable: editable,
   );
 }
@@ -57,6 +75,7 @@ Future<bool?> showQuickLogSheet(
   required int zaposlenikId,
   required String zaposlenikName,
   WorkOrderAssignment? existing,
+  DateTime? initialDate,
 }) {
   return showUnifiedHoursSheet(
     context,
@@ -66,6 +85,7 @@ Future<bool?> showQuickLogSheet(
     existing: existing,
     defaultZaposlenikId: zaposlenikId,
     defaultZaposlenikName: zaposlenikName,
+    initialDate: initialDate,
   );
 }
 
@@ -106,6 +126,7 @@ class _UnifiedHoursSheet extends ConsumerStatefulWidget {
     this.assignment,
     this.defaultZaposlenikId,
     this.defaultZaposlenikName,
+    this.initialDate,
     this.editable = true,
   });
 
@@ -114,6 +135,7 @@ class _UnifiedHoursSheet extends ConsumerStatefulWidget {
   final WorkOrderAssignment? assignment;
   final int? defaultZaposlenikId;
   final String? defaultZaposlenikName;
+  final DateTime? initialDate;
   final bool editable;
 
   @override
@@ -130,6 +152,7 @@ class _UnifiedHoursSheetState extends ConsumerState<_UnifiedHoursSheet> {
   late TextEditingController _hoursController;
   bool _loading = true;
   bool _saving = false;
+  bool _deleting = false;
   String? _loadError;
 
   bool get _isEdit => widget.assignment != null && widget.assignment!.id > 0;
@@ -140,7 +163,9 @@ class _UnifiedHoursSheetState extends ConsumerState<_UnifiedHoursSheet> {
     _noneVehicle = const VehicleLookup(id: 0, label: '— Bez stroja —');
     _selectedVehicle = _noneVehicle;
     final assignment = widget.assignment;
-    _date = parseApiDate(assignment?.datum) ?? DateTime.now();
+    _date = parseApiDate(assignment?.datum) ??
+        widget.initialDate ??
+        DateTime.now();
     _hoursController = TextEditingController(
       text: assignment != null && assignment.sati > 0
           ? assignment.sati.toStringAsFixed(1)
@@ -282,6 +307,43 @@ class _UnifiedHoursSheetState extends ConsumerState<_UnifiedHoursSheet> {
     }
   }
 
+  Future<void> _delete() async {
+    if (!_isEdit) return;
+    final name = widget.assignment!.zaposlenikName;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ukloni djelatnika'),
+        content: Text(
+          'Jeste li sigurni da želite ukloniti „$name" s naloga?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Odustani'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Ukloni'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    try {
+      await ref
+          .read(workOrderRepositoryProvider)
+          .deleteAssignment(id: widget.assignment!.id);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      _showError(ApiClient.describeError(error));
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
@@ -292,6 +354,7 @@ class _UnifiedHoursSheetState extends ConsumerState<_UnifiedHoursSheet> {
     final title = _isEdit
         ? widget.assignment!.zaposlenikName
         : 'Unos rada';
+    final busy = _saving || _deleting;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + bottom),
@@ -362,9 +425,9 @@ class _UnifiedHoursSheetState extends ConsumerState<_UnifiedHoursSheet> {
               ),
             ),
             const SizedBox(height: 20),
-            if (widget.editable)
+            if (widget.editable) ...[
               FilledButton(
-                onPressed: _saving ? null : _save,
+                onPressed: busy ? null : _save,
                 child: _saving
                     ? const SizedBox(
                         height: 20,
@@ -372,8 +435,28 @@ class _UnifiedHoursSheetState extends ConsumerState<_UnifiedHoursSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Text('Spremi'),
-              )
-            else
+              ),
+              if (_isEdit) ...[
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: busy ? null : _delete,
+                  icon: _deleting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          Icons.delete_outline,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                  label: Text(
+                    'Ukloni s naloga',
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
+            ] else
               Text(
                 'Uređivanje nije dostupno.',
                 textAlign: TextAlign.center,
@@ -700,6 +783,180 @@ class _AddVehicleSheetState extends ConsumerState<_AddVehicleSheet> {
                   : const Text('Dodaj'),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkItemHoursSheet extends ConsumerStatefulWidget {
+  const _WorkItemHoursSheet({required this.workItems});
+
+  final List<WorkItem> workItems;
+
+  @override
+  ConsumerState<_WorkItemHoursSheet> createState() =>
+      _WorkItemHoursSheetState();
+}
+
+class _WorkItemHoursSheetState extends ConsumerState<_WorkItemHoursSheet> {
+  WorkItem? _selected;
+  final _hoursController = TextEditingController();
+  final _notesController = TextEditingController();
+  DateTime _date = DateTime.now();
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.workItems.length == 1) {
+      _selected = widget.workItems.first;
+    }
+  }
+
+  @override
+  void dispose() {
+    _hoursController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  String _itemLabel(WorkItem item) {
+    final location = item.locationWithRoadSide;
+    if (location.isEmpty) return item.title;
+    return '${item.title} — $location';
+  }
+
+  Future<void> _save() async {
+    final item = _selected;
+    if (item == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Odaberite stavku rada.')),
+      );
+      return;
+    }
+    final hours =
+        double.tryParse(_hoursController.text.replaceAll(',', '.'));
+    if (hours == null || hours <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unesite ispravan broj sati.')),
+      );
+      return;
+    }
+    if (hours > 24) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Maksimalno 24 sata po unosu.')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final repo = ref.read(executionRepositoryProvider);
+      await repo.createExecution(
+        workItemId: item.id,
+        quantityExecuted: 0,
+        executionDate: toApiDate(_date),
+        notes: _notesController.text.trim(),
+        laborHours: hours,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiClient.describeError(error))),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Unos sati po stavci',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<WorkItem>(
+            value: _selected,
+            decoration: const InputDecoration(
+              labelText: 'Stavka rada',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              for (final item in widget.workItems)
+                DropdownMenuItem(
+                  value: item,
+                  child: Text(
+                    _itemLabel(item),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: _saving ? null : (v) => setState(() => _selected = v),
+          ),
+          const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.event_outlined),
+            title: const Text('Datum'),
+            subtitle: Text(formatDisplayDate(_date)),
+            trailing: const Icon(Icons.edit_calendar_outlined),
+            onTap: _saving
+                ? null
+                : () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _date,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime.now().add(const Duration(days: 1)),
+                    );
+                    if (picked != null) setState(() => _date = picked);
+                  },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _hoursController,
+            enabled: !_saving,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d{0,2}')),
+            ],
+            decoration: const InputDecoration(
+              labelText: 'Radni sati',
+              suffixText: 'h',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notesController,
+            enabled: !_saving,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Napomena (opcionalno)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Spremi'),
+          ),
         ],
       ),
     );

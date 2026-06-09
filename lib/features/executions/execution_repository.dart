@@ -18,6 +18,8 @@ class ExecutionRepository {
     required double quantityExecuted,
     required String executionDate,
     String? notes,
+    double? laborHours,
+    List<({int zaposlenikId, double laborHours})>? laborEntries,
   }) async {
     final res = await _client.dio.post<Map<String, dynamic>>(
       '${ApiConfig.fieldworkPrefix}/work-executions/',
@@ -26,6 +28,63 @@ class ExecutionRepository {
         'quantity_executed': quantityExecuted,
         'execution_date': executionDate,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (laborEntries != null && laborEntries.isNotEmpty)
+          'labor_entries': [
+            for (final entry in laborEntries)
+              {
+                'zaposlenik': entry.zaposlenikId,
+                'labor_hours': entry.laborHours.toStringAsFixed(2),
+              },
+          ]
+        else if (laborHours != null && laborHours > 0)
+          'labor_hours': laborHours.toStringAsFixed(2),
+      },
+    );
+    return WorkExecution.fromJson(res.data!);
+  }
+
+  Future<List<WorkExecution>> listExecutions({
+    required int workItemId,
+    required String executionDate,
+  }) async {
+    final res = await _client.dio.get<dynamic>(
+      '${ApiConfig.fieldworkPrefix}/work-executions/',
+      queryParameters: {
+        'work_item': workItemId,
+        'execution_date': executionDate,
+        'ordering': '-created_at',
+      },
+    );
+    final data = res.data;
+    final list =
+        data is Map ? (data['results'] as List? ?? const []) : (data as List);
+    return list
+        .map((e) => WorkExecution.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<WorkExecution> updateExecution({
+    required int executionId,
+    double? quantityExecuted,
+    String? executionDate,
+    String? notes,
+    List<({int zaposlenikId, double laborHours})>? laborEntries,
+  }) async {
+    final res = await _client.dio.patch<Map<String, dynamic>>(
+      '${ApiConfig.fieldworkPrefix}/work-executions/$executionId/',
+      data: {
+        if (quantityExecuted != null)
+          'quantity_executed': quantityExecuted.toStringAsFixed(3),
+        if (executionDate != null) 'execution_date': executionDate,
+        if (notes != null) 'notes': notes,
+        if (laborEntries != null)
+          'labor_entries': [
+            for (final entry in laborEntries)
+              {
+                'zaposlenik': entry.zaposlenikId,
+                'labor_hours': entry.laborHours.toStringAsFixed(2),
+              },
+          ],
       },
     );
     return WorkExecution.fromJson(res.data!);
